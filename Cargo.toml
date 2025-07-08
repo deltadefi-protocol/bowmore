@@ -1,0 +1,22 @@
+[package]
+name = "bowmore"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]] # Bin to run the HelloWorld gRPC server
+name = "bowmore"
+path = "src/server.rs"
+
+[dependencies]
+tonic = "0.10"
+prost = "0.12"
+tokio = { version = "1.39.3", features = ["full"] }
+serde_json = "1.0.111"
+dotenv = "0.15.0"
+async-trait = "0.1.79"
+whisky = "1.0.9"
+# bowmore-proto = { git = "https://github.com/deltadefi-protocol/bowmore.git", tag = "v1.1.85", dir = "proto" }
+bowmore-proto = { path = "../cask/proto"}
+
+[build-dependencies]
+tonic-build = "0.10"
