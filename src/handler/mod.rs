@@ -1,5 +1,6 @@
 use whisky::WError;
 pub mod batch_process_deposit;
+pub mod batch_process_withdrawal;
 pub mod mint_deposit_intent;
 pub mod mint_oracle;
 pub mod mint_withdrawal_intent;

@@ -7,12 +7,7 @@ pub struct VaultOracleUtxo {
     pub script: ProvidedScriptSource,
 }
 
-pub struct VaultUtxo {
-    pub script_utxo: UTxO,
-    pub redeemer: String,
-    pub script: ProvidedScriptSource,
-}
-pub struct BurnWithdrawalIntent {
+pub struct BurnDepositIntent {
     pub redeemer: String,
     pub burn_amount: i128,
     pub script: ProvidedScriptSource,
@@ -28,9 +23,12 @@ pub struct IntentOutput {
     pub address: String,
 }
 
-pub struct OperatorOutput {
+pub struct AppDepositRequest {
+    pub redeemer: String,
     pub output_amount: Vec<Asset>,
     pub address: String,
+    pub datum: String,
+    pub script: ProvidedScriptSource,
 }
 
 pub struct LPToken {
@@ -39,14 +37,13 @@ pub struct LPToken {
     pub script: ProvidedScriptSource,
 }
 
-pub async fn batch_process_withdrawal_intent(
+pub async fn batch_process_deposit_intent(
     app_oracle_utxo: &UtxoInput,
     vault_oracle_utxo: &VaultOracleUtxo,
-    vault_utxo: &[VaultUtxo],
-    withdrawal_intent_to_mint: &BurnWithdrawalIntent,
+    deposit_intent_to_mint: &BurnDepositIntent,
     intent_utxos: &[IntentUtxo],
     intent_outputs: &[IntentOutput],
-    operator_output: &OperatorOutput,
+    app_deposit_request_to_mint: &AppDepositRequest,
     lp_token_to_mint: &LPToken,
     my_address: &str,
     inputs: &[UTxO],
@@ -61,11 +58,19 @@ pub async fn batch_process_withdrawal_intent(
         script: vault_oracle_script,
     } = vault_oracle_utxo;
 
-    let BurnWithdrawalIntent {
-        redeemer: withdrawal_intent_redeemer,
-        script: withdrawal_intent_script,
+    let BurnDepositIntent {
+        redeemer: deposit_intent_redeemer,
+        script: deposit_intent_script,
         burn_amount,
-    } = withdrawal_intent_to_mint;
+    } = deposit_intent_to_mint;
+
+    let AppDepositRequest {
+        redeemer: app_deposit_request_redeemer,
+        output_amount: app_deposit_request_output_amount,
+        datum: app_deposit_request_datum,
+        address: app_deposit_request_address,
+        script: app_deposit_request_script,
+    } = app_deposit_request_to_mint;
 
     let LPToken {
         redeemer: lp_token_redeemer,
@@ -73,26 +78,40 @@ pub async fn batch_process_withdrawal_intent(
         script: lp_token_script,
     } = lp_token_to_mint;
 
-    let OperatorOutput {
-        output_amount: operator_output_amount,
-        address: operator_address,
-    } = operator_output;
+    let deposit_intent_script_hash = get_script_hash(
+        &deposit_intent_script.script_cbor,
+        deposit_intent_script.language_version.clone(),
+    )?;
 
-    let withdrawal_intent_script_hash = get_script_hash(
-        &withdrawal_intent_script.script_cbor,
-        withdrawal_intent_script.language_version.clone(),
+    let app_deposit_request_script_hash = get_script_hash(
+        &app_deposit_request_script.script_cbor,
+        app_deposit_request_script.language_version.clone(),
     )?;
 
     tx_builder
         // burn intents
         .mint_plutus_script_v3()
-        .mint(*burn_amount, &withdrawal_intent_script_hash, "")
-        .minting_script(&withdrawal_intent_script.script_cbor)
+        .mint(*burn_amount, &deposit_intent_script_hash, "")
+        .minting_script(&deposit_intent_script.script_cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(withdrawal_intent_redeemer.to_string()),
+            data: WData::JSON(deposit_intent_redeemer.to_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
+        // mint app deposit request
+        .mint_plutus_script_v3()
+        .mint(1, &app_deposit_request_script_hash, "")
+        .minting_script(&app_deposit_request_script.script_cbor)
+        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        .mint_redeemer_value(&WRedeemer {
+            data: WData::JSON(app_deposit_request_redeemer.to_string()),
+            ex_units: Budget { mem: 0, steps: 0 },
+        })
+        .tx_out(
+            &app_deposit_request_address,
+            app_deposit_request_output_amount,
+        )
+        .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_string()))
         //mint lp token
         .mint_plutus_script_v3()
         .mint(
@@ -128,25 +147,7 @@ pub async fn batch_process_withdrawal_intent(
             &vault_oracle_script_utxo.output.address,
             &vault_oracle_script_utxo.output.amount,
         )
-        .tx_out_inline_datum_value(&WData::JSON(vault_oracle_datum.to_string())) // JSON string datum
-        // operator output
-        .tx_out(&operator_address, &operator_output_amount);
-
-    // add vault utxos
-    for vault in vault_utxo {
-        tx_builder
-            .tx_in(
-                &vault.script_utxo.input.tx_hash,
-                vault.script_utxo.input.output_index,
-                &vault.script_utxo.output.amount,
-                &vault.script_utxo.output.address,
-            )
-            .tx_in_redeemer_value(&WRedeemer {
-                data: WData::JSON(vault.redeemer.to_string()),
-                ex_units: Budget { mem: 0, steps: 0 },
-            })
-            .tx_in_script(&vault.script.script_cbor);
-    }
+        .tx_out_inline_datum_value(&WData::JSON(vault_oracle_datum.to_string())); // JSON string datum
 
     // add intent utxos
     for intent_utxo in intent_utxos {
