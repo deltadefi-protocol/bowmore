@@ -63,6 +63,7 @@ mod tests {
 
         let signed_tx = check_signature_sign_tx(&app_owner_wallet, &tx_hex).unwrap();
         assert!(!signed_tx.is_empty());
+        println!("signed_tx: {:?}", signed_tx);
 
         let result = provider.submit_tx(&signed_tx).await;
         assert!(
