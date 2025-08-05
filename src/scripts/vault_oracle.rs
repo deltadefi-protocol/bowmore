@@ -1,4 +1,68 @@
 use whisky::{
+    data::{ByteString, Constr0, Credential, Int, List},
+    impl_constr_wrapper_type,
+};
+use whisky::{ConstrEnum, ConstrWrapper};
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum VaultOracleDatum {
+    Datum(
+        ByteString,
+        ByteString,
+        List<ByteString>,
+        Int,
+        Int,
+        Int,
+        ByteString,
+        Int,
+        ByteString,
+        ByteString,
+        // ByteString,
+        // ByteString,
+    ),
+}
+
+// #[derive(Debug, Clone)]
+// pub struct VaultOracleDatum(
+//     Constr0<
+//         Box<(
+//             ByteString,
+//             ByteString,
+//             List<ByteString>,
+//             Int,
+//             Int,
+//             Int,
+//             ByteString,
+//             Int,
+//             ByteString,
+//             ByteString,
+//             // ByteString, todo: + number of fileds in whisky contructor
+//             // ByteString,
+//         )>,
+//     >,
+// );
+// impl_constr_wrapper_type!(VaultOracleDatum, 0, [
+//   (app_oracle: ByteString, &str),
+//   (pluggable_logic: ByteString, &str),
+//   (node_pub_key: List<ByteString>, &[ByteString]),
+//   (total_lp: Int, i128),
+//   (hwm_lp_value: Int, i128),
+//   (operator_charge: Int, i128),
+//   (operator_key: ByteString, &str),
+//   (vault_cost: Int, i128),
+//   (vault_script_hash: ByteString, &str),
+//   (deposit_intent_script_hash: ByteString, &str),
+// //   (withdrawal_intent_script_hash: ByteString, &str),
+// //   (lp_token: ByteString, &str),
+// ]);
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum ProcessRedeemer {
+    ProcessDeposit,
+    ProcessWithdrawal,
+}
+
+use whisky::{
     utils::blueprint::{MintingBlueprint, SpendingBlueprint},
     BuilderDataType, LanguageVersion,
 };

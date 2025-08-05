@@ -1,9 +1,30 @@
 use whisky::{
+    data::{Address, ByteString, Int, List, Map, OutputReference, Value},
+    ConstrEnum,
+};
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum IntentRedeemer {
+    MintIntent,
+    BurnIntent(List<Int>, ByteString, List<ByteString>),
+}
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum SignedMessage {
+    Message(ByteString, Map<ByteString, Int>, OutputReference),
+}
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum DepositIntentDatum {
+    Datum(Address, Value),
+}
+
+use whisky::{
     utils::blueprint::{MintingBlueprint, SpendingBlueprint},
     BuilderDataType, LanguageVersion,
 };
 
-use crate::{config::AppConfig, scripts::blueprints::vault_oracle::vault_oracle_mint_blueprint};
+use crate::{config::AppConfig, scripts::vault_oracle::vault_oracle_mint_blueprint};
 
 pub fn deposit_intent_mint_blueprint() -> MintingBlueprint {
     let oracle_nft = vault_oracle_mint_blueprint().hash;

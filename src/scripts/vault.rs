@@ -1,9 +1,17 @@
+use whisky::ConstrEnum;
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum VaultRedeemer {
+    WithdrawFund,
+    PluggableLogic,
+}
+
 use whisky::{
     utils::blueprint::{SpendingBlueprint, WithdrawalBlueprint},
     BuilderDataType, LanguageVersion,
 };
 
-use crate::{config::AppConfig, scripts::blueprints::vault_oracle::vault_oracle_mint_blueprint};
+use crate::{config::AppConfig, scripts::vault_oracle::vault_oracle_mint_blueprint};
 
 pub fn vault_spend_blueprint() -> SpendingBlueprint {
     let AppConfig { network_id, .. } = AppConfig::new();

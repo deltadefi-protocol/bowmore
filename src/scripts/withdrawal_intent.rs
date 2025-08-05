@@ -1,9 +1,19 @@
 use whisky::{
+    data::{Address, Int},
+    ConstrEnum,
+};
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum WithdrawalIntentDatum {
+    Datum(Address, Int),
+}
+
+use whisky::{
     utils::blueprint::{MintingBlueprint, SpendingBlueprint},
     BuilderDataType, LanguageVersion,
 };
 
-use crate::{config::AppConfig, scripts::blueprints::vault_oracle::vault_oracle_mint_blueprint};
+use crate::{config::AppConfig, scripts::vault_oracle::vault_oracle_mint_blueprint};
 
 pub fn withdrawal_intent_mint_blueprint() -> MintingBlueprint {
     let oracle_nft = vault_oracle_mint_blueprint().hash;

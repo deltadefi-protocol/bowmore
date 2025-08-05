@@ -1,9 +1,6 @@
-use whisky::{
-    utils::blueprint::{MintingBlueprint, SpendingBlueprint},
-    BuilderDataType, LanguageVersion,
-};
+use whisky::{utils::blueprint::MintingBlueprint, BuilderDataType, LanguageVersion};
 
-use crate::scripts::blueprints::vault_oracle::vault_oracle_mint_blueprint;
+use crate::scripts::vault_oracle::vault_oracle_mint_blueprint;
 
 pub fn lp_token_mint() -> MintingBlueprint {
     let oracle_nft = vault_oracle_mint_blueprint().hash;
