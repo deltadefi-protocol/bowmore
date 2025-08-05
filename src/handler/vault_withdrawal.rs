@@ -1,25 +1,25 @@
 use whisky::*;
 
-pub struct MintDepositIntent {
+pub struct MintWithdrawalIntent {
     pub redeemer: String,
     pub output_amount: Vec<Asset>,
     pub datum: String,
     pub script: ProvidedScriptSource,
 }
 
-pub async fn mint_deposit_intent(
-    deposit_intent_to_mint: &MintDepositIntent,
+pub async fn vault_withdrawal(
+    withdrawal_intent_to_mint: &MintWithdrawalIntent,
     my_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
     let mut tx_builder = TxBuilder::new_core();
-    let MintDepositIntent {
+    let MintWithdrawalIntent {
         redeemer,
         script,
         output_amount,
         datum,
-    } = deposit_intent_to_mint;
+    } = withdrawal_intent_to_mint;
 
     let script_hash = get_script_hash(&script.script_cbor, script.language_version.clone())?;
 

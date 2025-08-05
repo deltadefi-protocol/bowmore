@@ -1,61 +1,38 @@
 use whisky::*;
 
-pub struct MintToken {
+pub struct MintDepositIntent {
     pub redeemer: String,
-    pub script: ProvidedScriptSource,
-}
-
-pub struct OracleOutput {
     pub output_amount: Vec<Asset>,
     pub datum: String,
     pub script: ProvidedScriptSource,
 }
 
-pub async fn mint_oracle(
-    to_mint: &MintToken,
-    token_output: &OracleOutput,
+pub async fn vault_deposit(
+    deposit_intent_to_mint: &MintDepositIntent,
     my_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
-    one_shot_utxo: &UTxO,
 ) -> Result<String, WError> {
     let mut tx_builder = TxBuilder::new_core();
-    let MintToken {
+    let MintDepositIntent {
         redeemer,
-        script: minting_script,
-    } = to_mint;
-
-    let OracleOutput {
+        script,
         output_amount,
         datum,
-        script: spending_script,
-    } = token_output;
+    } = deposit_intent_to_mint;
 
-    let minting_script_hash = get_script_hash(
-        &minting_script.script_cbor,
-        minting_script.language_version.clone(),
-    )?;
-    let spending_script_hash = get_script_hash(
-        &spending_script.script_cbor,
-        spending_script.language_version.clone(),
-    )?;
+    let script_hash = get_script_hash(&script.script_cbor, script.language_version.clone())?;
 
     tx_builder
-        .tx_in(
-            &one_shot_utxo.input.tx_hash,
-            one_shot_utxo.input.output_index,
-            &one_shot_utxo.output.amount,
-            &one_shot_utxo.output.address,
-        )
         .mint_plutus_script_v3()
-        .mint(1, &minting_script_hash, "")
-        .minting_script(&minting_script.script_cbor)
+        .mint(1, &script_hash, "")
+        .minting_script(&script.script_cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(redeemer.to_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
-        .tx_out(&spending_script_hash, output_amount)
+        .tx_out(&script_hash, output_amount)
         .tx_out_inline_datum_value(&WData::JSON(datum.to_string()))
         .change_address(my_address)
         .tx_in_collateral(

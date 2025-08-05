@@ -37,7 +37,7 @@ pub struct LPToken {
     pub script: ProvidedScriptSource,
 }
 
-pub async fn batch_process_deposit_intent(
+pub async fn process_vault_deposit(
     app_oracle_utxo: &UtxoInput,
     vault_oracle_utxo: &VaultOracleUtxo,
     deposit_intent_to_mint: &BurnDepositIntent,

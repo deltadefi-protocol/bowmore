@@ -39,7 +39,7 @@ pub struct LPToken {
     pub script: ProvidedScriptSource,
 }
 
-pub async fn batch_process_withdrawal_intent(
+pub async fn process_vault_withdrawal(
     app_oracle_utxo: &UtxoInput,
     vault_oracle_utxo: &VaultOracleUtxo,
     vault_utxo: &[VaultUtxo],
