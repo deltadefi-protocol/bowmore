@@ -1,6 +1,6 @@
 use whisky::{
     data::{byte_string, integer, Address, ByteString, Int, List, Map, OutputReference, Value},
-    Asset, ConstrEnum,
+    Asset, ConstrEnum, Output, UTxO, WError,
 };
 
 #[derive(Debug, Clone, ConstrEnum)]
