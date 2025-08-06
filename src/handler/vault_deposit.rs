@@ -1,6 +1,7 @@
 use whisky::{data::PlutusDataJson, *};
 
 use crate::{
+    config::AppConfig,
     scripts::deposit_intent::{self, IntentRedeemer},
     utils::script::to_deposit_intent_datum,
 };
@@ -12,24 +13,33 @@ pub async fn vault_deposit(
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
     let deposit_intent_blueprint = deposit_intent::deposit_intent_mint_blueprint(oracle_nft);
-    let deposit_intent_script_hash = get_script_hash(
-        &deposit_intent_blueprint.cbor,
-        deposit_intent_blueprint.version,
-    )?;
+    let deposit_intent_script_address = whisky::script_to_address(
+        network_id.parse().unwrap(),
+        &deposit_intent_blueprint.hash,
+        None,
+    );
     let deposit_intent_datum = to_deposit_intent_datum(deposit_assets, user_address);
+
+    let mut deposit_intent_output_amount = deposit_assets.to_vec();
+    deposit_intent_output_amount.push(Asset::new_from_str(&deposit_intent_blueprint.hash, "1"));
 
     let mut tx_builder = TxBuilder::new_core();
     tx_builder
         .mint_plutus_script_v3()
-        .mint(1, &deposit_intent_script_hash, "")
+        .mint(1, &deposit_intent_blueprint.hash, "")
         .minting_script(&deposit_intent_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(IntentRedeemer::MintIntent.to_json_string()),
             ex_units: Budget::default(),
         })
-        .tx_out(&deposit_intent_script_hash, deposit_assets)
+        .tx_out(
+            &deposit_intent_script_address,
+            &deposit_intent_output_amount,
+        )
         .tx_out_inline_datum_value(&WData::JSON(deposit_intent_datum.to_json_string()))
         .change_address(user_address)
         .tx_in_collateral(

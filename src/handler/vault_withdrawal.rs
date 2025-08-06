@@ -1,40 +1,57 @@
-use whisky::*;
+use whisky::{data::PlutusDataJson, *};
 
-pub struct MintWithdrawalIntent {
-    pub redeemer: String,
-    pub output_amount: Vec<Asset>,
-    pub datum: String,
-    pub script: ProvidedScriptSource,
-}
+use crate::{
+    config::AppConfig,
+    scripts::{
+        deposit_intent::IntentRedeemer,
+        lp_token,
+        withdrawal_intent::{self, withdrawal_intent_mint_blueprint},
+    },
+    utils::script::to_withdrawal_intent_datum,
+};
 
 pub async fn vault_withdrawal(
-    withdrawal_intent_to_mint: &MintWithdrawalIntent,
-    my_address: &str,
+    oracle_nft: &str,
+    withdrawal_amount: &str,
+    user_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
+    let lp_token_mint_blueprint = lp_token::lp_token_mint_blueprint(oracle_nft);
+    let withdrawal_intent_blueprint = withdrawal_intent_mint_blueprint(oracle_nft);
+    let withdrawal_intent_script_address = whisky::script_to_address(
+        network_id.parse().unwrap(),
+        &withdrawal_intent_blueprint.hash,
+        None,
+    );
+    let withdrawal_intent_datum = to_withdrawal_intent_datum(withdrawal_amount, user_address);
+
+    let mut withdrawl_intent_output_amount = Vec::new();
+    withdrawl_intent_output_amount
+        .push(Asset::new_from_str(&withdrawal_intent_blueprint.hash, "1"));
+    withdrawl_intent_output_amount.push(Asset::new_from_str(
+        &lp_token_mint_blueprint.hash,
+        withdrawal_amount,
+    ));
+
     let mut tx_builder = TxBuilder::new_core();
-    let MintWithdrawalIntent {
-        redeemer,
-        script,
-        output_amount,
-        datum,
-    } = withdrawal_intent_to_mint;
-
-    let script_hash = get_script_hash(&script.script_cbor, script.language_version.clone())?;
-
     tx_builder
         .mint_plutus_script_v3()
-        .mint(1, &script_hash, "")
-        .minting_script(&script.script_cbor)
+        .mint(1, &withdrawal_intent_blueprint.hash, "")
+        .minting_script(&withdrawal_intent_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(redeemer.to_string()),
-            ex_units: Budget { mem: 0, steps: 0 },
+            data: WData::JSON(IntentRedeemer::MintIntent.to_json_string()),
+            ex_units: Budget::default(),
         })
-        .tx_out(&script_hash, output_amount)
-        .tx_out_inline_datum_value(&WData::JSON(datum.to_string()))
-        .change_address(my_address)
+        .tx_out(
+            &withdrawal_intent_script_address,
+            &withdrawl_intent_output_amount,
+        )
+        .tx_out_inline_datum_value(&WData::JSON(withdrawal_intent_datum.to_json_string()))
+        .change_address(user_address)
         .tx_in_collateral(
             &collateral.input.tx_hash,
             collateral.input.output_index,
