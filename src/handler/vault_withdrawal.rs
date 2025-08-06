@@ -5,9 +5,8 @@ use crate::{
     scripts::{
         deposit_intent::IntentRedeemer,
         lp_token,
-        withdrawal_intent::{self, withdrawal_intent_mint_blueprint},
+        withdrawal_intent::{withdrawal_intent_mint_blueprint, WithdrawalIntentDatum},
     },
-    utils::script::to_withdrawal_intent_datum,
 };
 
 pub async fn vault_withdrawal(
@@ -26,15 +25,12 @@ pub async fn vault_withdrawal(
         &withdrawal_intent_blueprint.hash,
         None,
     );
-    let withdrawal_intent_datum = to_withdrawal_intent_datum(withdrawal_amount, user_address);
+    let withdrawal_intent_datum = WithdrawalIntentDatum::new(withdrawal_amount, user_address);
 
-    let mut withdrawl_intent_output_amount = Vec::new();
-    withdrawl_intent_output_amount
-        .push(Asset::new_from_str(&withdrawal_intent_blueprint.hash, "1"));
-    withdrawl_intent_output_amount.push(Asset::new_from_str(
-        &lp_token_mint_blueprint.hash,
-        withdrawal_amount,
-    ));
+    let withdrawl_intent_output_amount = vec![
+        Asset::new_from_str(&withdrawal_intent_blueprint.hash, "1"),
+        Asset::new_from_str(&lp_token_mint_blueprint.hash, withdrawal_amount),
+    ];
 
     let mut tx_builder = TxBuilder::new_core();
     tx_builder

@@ -2,8 +2,7 @@ use whisky::{data::PlutusDataJson, *};
 
 use crate::{
     config::AppConfig,
-    scripts::deposit_intent::{self, IntentRedeemer},
-    utils::script::to_deposit_intent_datum,
+    scripts::deposit_intent::{self, DepositIntentDatum, IntentRedeemer},
 };
 
 pub async fn vault_deposit(
@@ -15,16 +14,17 @@ pub async fn vault_deposit(
 ) -> Result<String, WError> {
     let AppConfig { network_id, .. } = AppConfig::new();
 
-    let deposit_intent_blueprint = deposit_intent::deposit_intent_mint_blueprint(oracle_nft);
+    let deposit_intent_blueprint =
+        deposit_intent::deposit_intent_mint_blueprint(oracle_nft, 1000000);
     let deposit_intent_script_address = whisky::script_to_address(
         network_id.parse().unwrap(),
         &deposit_intent_blueprint.hash,
         None,
     );
-    let deposit_intent_datum = to_deposit_intent_datum(deposit_assets, user_address);
+    let deposit_intent_datum = DepositIntentDatum::new(deposit_assets, user_address);
 
-    let mut deposit_intent_output_amount = deposit_assets.to_vec();
-    deposit_intent_output_amount.push(Asset::new_from_str(&deposit_intent_blueprint.hash, "1"));
+    let deposit_intent_output_amount =
+        vec![Asset::new_from_str(&deposit_intent_blueprint.hash, "1")];
 
     let mut tx_builder = TxBuilder::new_core();
     tx_builder

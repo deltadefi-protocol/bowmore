@@ -1,45 +1,50 @@
-use whisky::*;
+use whisky::{data::PlutusDataJson, *};
 
-pub struct MintToken {
-    pub redeemer: String,
-    pub script: ProvidedScriptSource,
-}
-
-pub struct OracleOutput {
-    pub output_amount: Vec<Asset>,
-    pub datum: String,
-    pub script: ProvidedScriptSource,
-}
+use crate::{
+    config::AppConfig,
+    scripts::{
+        vault_oracle::{
+            vault_oracle_mint_blueprint, vault_oracle_spend_blueprint, VaultOracleDatum,
+        },
+        MintPolarity,
+    },
+};
 
 pub async fn setup_vault_oracle(
-    to_mint: &MintToken,
-    token_output: &OracleOutput,
     my_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
     one_shot_utxo: &UTxO,
+    lp_decimal: i128,
+    pluggable_logic: &str,
+    operator_charge: i128,
+    operator_key: &str,
 ) -> Result<String, WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
+    let vault_oracle_mint_blueprint = vault_oracle_mint_blueprint(
+        &one_shot_utxo.input.tx_hash,
+        one_shot_utxo.input.output_index as i128,
+    );
+    let vault_oracle_spend_blueprint =
+        vault_oracle_spend_blueprint(&vault_oracle_mint_blueprint.hash);
+    let vault_oracle_script_address = whisky::script_to_address(
+        network_id.parse().unwrap(),
+        &vault_oracle_spend_blueprint.hash,
+        None,
+    );
+    let vault_oracle_datum = VaultOracleDatum::setup_vault_oracle_datum(
+        &vault_oracle_mint_blueprint.hash,
+        lp_decimal,
+        pluggable_logic,
+        operator_charge,
+        operator_key,
+    );
+
+    let vault_oracle_output_amount =
+        vec![Asset::new_from_str(&vault_oracle_mint_blueprint.hash, "1")];
+
     let mut tx_builder = TxBuilder::new_core();
-    let MintToken {
-        redeemer,
-        script: minting_script,
-    } = to_mint;
-
-    let OracleOutput {
-        output_amount,
-        datum,
-        script: spending_script,
-    } = token_output;
-
-    let minting_script_hash = get_script_hash(
-        &minting_script.script_cbor,
-        minting_script.language_version.clone(),
-    )?;
-    let spending_script_hash = get_script_hash(
-        &spending_script.script_cbor,
-        spending_script.language_version.clone(),
-    )?;
-
     tx_builder
         .tx_in(
             &one_shot_utxo.input.tx_hash,
@@ -48,15 +53,15 @@ pub async fn setup_vault_oracle(
             &one_shot_utxo.output.address,
         )
         .mint_plutus_script_v3()
-        .mint(1, &minting_script_hash, "")
-        .minting_script(&minting_script.script_cbor)
+        .mint(1, &vault_oracle_mint_blueprint.hash, "")
+        .minting_script(&vault_oracle_mint_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(redeemer.to_string()),
-            ex_units: Budget { mem: 0, steps: 0 },
+            data: WData::JSON(MintPolarity::RMint.to_json_string()),
+            ex_units: Budget::default(),
         })
-        .tx_out(&spending_script_hash, output_amount)
-        .tx_out_inline_datum_value(&WData::JSON(datum.to_string()))
+        .tx_out(&vault_oracle_script_address, &vault_oracle_output_amount)
+        .tx_out_inline_datum_value(&WData::JSON(vault_oracle_datum.to_json_string()))
         .change_address(my_address)
         .tx_in_collateral(
             &collateral.input.tx_hash,
