@@ -1,40 +1,37 @@
-use whisky::*;
+use whisky::{data::PlutusDataJson, *};
 
-pub struct MintDepositIntent {
-    pub redeemer: String,
-    pub output_amount: Vec<Asset>,
-    pub datum: String,
-    pub script: ProvidedScriptSource,
-}
+use crate::{
+    scripts::deposit_intent::{self, IntentRedeemer},
+    utils::script::to_deposit_intent_datum,
+};
 
 pub async fn vault_deposit(
-    deposit_intent_to_mint: &MintDepositIntent,
-    my_address: &str,
+    oracle_nft: &str,
+    deposit_assets: &[Asset],
+    user_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
+    let deposit_intent_blueprint = deposit_intent::deposit_intent_mint_blueprint(oracle_nft);
+    let deposit_intent_script_hash = get_script_hash(
+        &deposit_intent_blueprint.cbor,
+        deposit_intent_blueprint.version,
+    )?;
+    let deposit_intent_datum = to_deposit_intent_datum(deposit_assets, user_address);
+
     let mut tx_builder = TxBuilder::new_core();
-    let MintDepositIntent {
-        redeemer,
-        script,
-        output_amount,
-        datum,
-    } = deposit_intent_to_mint;
-
-    let script_hash = get_script_hash(&script.script_cbor, script.language_version.clone())?;
-
     tx_builder
         .mint_plutus_script_v3()
-        .mint(1, &script_hash, "")
-        .minting_script(&script.script_cbor)
+        .mint(1, &deposit_intent_script_hash, "")
+        .minting_script(&deposit_intent_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(redeemer.to_string()),
-            ex_units: Budget { mem: 0, steps: 0 },
+            data: WData::JSON(IntentRedeemer::MintIntent.to_json_string()),
+            ex_units: Budget::default(),
         })
-        .tx_out(&script_hash, output_amount)
-        .tx_out_inline_datum_value(&WData::JSON(datum.to_string()))
-        .change_address(my_address)
+        .tx_out(&deposit_intent_script_hash, deposit_assets)
+        .tx_out_inline_datum_value(&WData::JSON(deposit_intent_datum.to_json_string()))
+        .change_address(user_address)
         .tx_in_collateral(
             &collateral.input.tx_hash,
             collateral.input.output_index,
