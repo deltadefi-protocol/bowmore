@@ -31,11 +31,9 @@ impl VaultOracleDatum {
         operator_key: &str,
     ) -> Self {
         let vault_spend_blueprint = vault_spend_blueprint(&oracle_nft);
-        let deposit_mint_blueprint =
-            deposit_intent_mint_blueprint(&oracle_nft, lp_decimal);
-        let withdrawal_intent_script_hash =
-            withdrawal_intent_mint_blueprint(&oracle_nft);
-        let lp_token_mint_blueprint = lp_token_mint_blueprint(&oracle_nft);
+        let deposit_mint_blueprint = deposit_intent_mint_blueprint(&oracle_nft, lp_decimal);
+        // let withdrawal_intent_script_hash = withdrawal_intent_mint_blueprint(&oracle_nft);
+        // let lp_token_mint_blueprint = lp_token_mint_blueprint(&oracle_nft);
 
         VaultOracleDatum::Datum(
             ByteString::new("todo: app_oracle"),
@@ -59,30 +57,175 @@ impl VaultOracleDatum {
         )
     }
 
+    pub fn from_plutus_data(plutus_data_hex: &str) -> Result<Self, whisky::WError> {
+        let plutus_data = whisky::csl::PlutusData::from_hex(plutus_data_hex).map_err(|_e| {
+            whisky::WError::new(
+                "Failed to decode hex string to PlutusData",
+                "InvalidDataError",
+            )
+        })?;
+
+        let datum_json = whisky::csl::decode_plutus_datum_to_json_value(
+            &plutus_data,
+            whisky::csl::PlutusDatumSchema::DetailedSchema,
+        )
+        .map_err(|_err| {
+            whisky::WError::new("Failed to decode Plutus datum to JSON", "InvalidDatumError")
+        })?;
+
+        let fields = datum_json["fields"].as_array().ok_or_else(|| {
+            whisky::WError::new("Invalid VaultOracleDatum structure", "InvalidDataError")
+        })?;
+
+        if fields.len() < 10 {
+            return Err(whisky::WError::new(
+                "Not enough fields in VaultOracleDatum",
+                "InvalidDataError",
+            ));
+        }
+
+        // Extract app_oracle (field 0)
+        let app_oracle_bytes = fields[0]["bytes"]
+            .as_str()
+            .ok_or_else(|| whisky::WError::new("Missing app_oracle field", "InvalidDataError"))?;
+        let app_oracle = ByteString::new(app_oracle_bytes);
+
+        // Extract pluggable_logic (field 1)
+        let pluggable_logic_bytes = fields[1]["bytes"].as_str().ok_or_else(|| {
+            whisky::WError::new("Missing pluggable_logic field", "InvalidDataError")
+        })?;
+        let pluggable_logic = ByteString::new(pluggable_logic_bytes);
+
+        // Extract node_pub_key list (field 2)
+        let node_pub_keys_json = &fields[2]["list"];
+        let node_pub_keys_array = node_pub_keys_json.as_array().ok_or_else(|| {
+            whisky::WError::new("Invalid node_pub_key list structure", "InvalidDataError")
+        })?;
+
+        let mut node_pub_keys = Vec::new();
+        for key_json in node_pub_keys_array {
+            let key_bytes = key_json["bytes"].as_str().ok_or_else(|| {
+                whisky::WError::new("Invalid node public key format", "InvalidDataError")
+            })?;
+            node_pub_keys.push(ByteString::new(key_bytes));
+        }
+        let node_pub_key_list = List::new(&node_pub_keys);
+
+        // Extract total_lp (field 3)
+        let total_lp_int = fields[3]["int"].as_i64().ok_or_else(|| {
+            whisky::WError::new("Missing or invalid total_lp field", "InvalidDataError")
+        })?;
+        let total_lp = Int::new(total_lp_int as i128);
+
+        // Extract hwm_lp_value (field 4)
+        let hwm_lp_value_int = fields[4]["int"].as_i64().ok_or_else(|| {
+            whisky::WError::new("Missing or invalid hwm_lp_value field", "InvalidDataError")
+        })?;
+        let hwm_lp_value = Int::new(hwm_lp_value_int as i128);
+
+        // Extract operator_charge (field 5)
+        let operator_charge_int = fields[5]["int"].as_i64().ok_or_else(|| {
+            whisky::WError::new(
+                "Missing or invalid operator_charge field",
+                "InvalidDataError",
+            )
+        })?;
+        let operator_charge = Int::new(operator_charge_int as i128);
+
+        // Extract operator_key (field 6)
+        let operator_key_bytes = fields[6]["bytes"]
+            .as_str()
+            .ok_or_else(|| whisky::WError::new("Missing operator_key field", "InvalidDataError"))?;
+        let operator_key = ByteString::new(operator_key_bytes);
+
+        // Extract vault_cost (field 7)
+        let vault_cost_int = fields[7]["int"].as_i64().ok_or_else(|| {
+            whisky::WError::new("Missing or invalid vault_cost field", "InvalidDataError")
+        })?;
+        let vault_cost = Int::new(vault_cost_int as i128);
+
+        // Extract vault_script_hash (field 8)
+        let vault_script_hash_bytes = fields[8]["bytes"].as_str().ok_or_else(|| {
+            whisky::WError::new("Missing vault_script_hash field", "InvalidDataError")
+        })?;
+        let vault_script_hash = ByteString::new(vault_script_hash_bytes);
+
+        // Extract deposit_intent_script_hash (field 9)
+        let deposit_intent_script_hash_bytes = fields[9]["bytes"].as_str().ok_or_else(|| {
+            whisky::WError::new(
+                "Missing deposit_intent_script_hash field",
+                "InvalidDataError",
+            )
+        })?;
+        let deposit_intent_script_hash = ByteString::new(deposit_intent_script_hash_bytes);
+
+        // // Extract withdrawal_intent_script_hash (field 10)
+        // let withdrawal_intent_script_hash_bytes =
+        //     fields[10]["bytes"].as_str().ok_or_else(|| {
+        //         whisky::WError::new(
+        //             "Missing withdrawal_intent_script_hash field",
+        //             "InvalidDataError",
+        //         )
+        //     })?;
+        // let withdrawal_intent_script_hash = ByteString::new(withdrawal_intent_script_hash_bytes);
+
+        // // Extract lp_token_script_hash (field 11)
+        // let lp_token_script_hash_bytes = fields[11]["bytes"].as_str().ok_or_else(|| {
+        //     whisky::WError::new("Missing lp_token_script_hash field", "InvalidDataError")
+        // })?;
+        // let lp_token_script_hash = ByteString::new(lp_token_script_hash_bytes);
+
+        Ok(VaultOracleDatum::Datum(
+            app_oracle,
+            pluggable_logic,
+            node_pub_key_list,
+            total_lp,
+            hwm_lp_value,
+            operator_charge,
+            operator_key,
+            vault_cost,
+            vault_script_hash,
+            deposit_intent_script_hash,
+            // withdrawal_intent_script_hash,
+            // lp_token_script_hash,
+        ))
+    }
+
     pub fn update_vault_oracle_datum(
-        &mut self,
+        &self,
         new_total_lp: i128,
         new_hwm_lp_value: i128,
         new_cost: i128,
-    ) {
-        let VaultOracleDatum::Datum(
-            _app_oracle,
-            _pluggable_logic,
-            _node_pub_key,
-            ref mut total_lp,
-            ref mut hwm_lp_value,
-            _operator_charge,
-            _operator_key,
-            ref mut vault_cost,
-            _vault_script_hash,
-            _deposit_intent_script_hash,
-            // _withdrawal_intent_script_hash,
-            // _lp_token,
-        ) = self;
-
-        *total_lp = Int::new(new_total_lp);
-        *hwm_lp_value = Int::new(new_hwm_lp_value);
-        *vault_cost = Int::new(new_cost);
+    ) -> Self {
+        match self {
+            VaultOracleDatum::Datum(
+                app_oracle,
+                pluggable_logic,
+                node_pub_key,
+                _total_lp,
+                _hwm_lp_value,
+                operator_charge,
+                operator_key,
+                _vault_cost,
+                vault_script_hash,
+                deposit_intent_script_hash,
+                // withdrawal_intent_script_hash,
+                // lp_token,
+            ) => VaultOracleDatum::Datum(
+                app_oracle.clone(),
+                pluggable_logic.clone(),
+                node_pub_key.clone(),
+                Int::new(new_total_lp),
+                Int::new(new_hwm_lp_value),
+                operator_charge.clone(),
+                operator_key.clone(),
+                Int::new(new_cost),
+                vault_script_hash.clone(),
+                deposit_intent_script_hash.clone(),
+                // withdrawal_intent_script_hash.clone(),
+                // lp_token.clone(),
+            ),
+        }
     }
 }
 // #[derive(Debug, Clone)]

@@ -1,13 +1,8 @@
 use whisky::{data::PlutusDataJson, *};
 
-use crate::{
-    config::AppConfig,
-    scripts::{
-        vault_oracle::{
-            vault_oracle_mint_blueprint, vault_oracle_spend_blueprint, VaultOracleDatum,
-        },
-        MintPolarity,
-    },
+use crate::scripts::{
+    vault_oracle::{vault_oracle_mint_blueprint, vault_oracle_spend_blueprint, VaultOracleDatum},
+    MintPolarity,
 };
 
 pub async fn setup_vault_oracle(
@@ -20,19 +15,13 @@ pub async fn setup_vault_oracle(
     operator_charge: i128,
     operator_key: &str,
 ) -> Result<String, WError> {
-    let AppConfig { network_id, .. } = AppConfig::new();
-
     let vault_oracle_mint_blueprint = vault_oracle_mint_blueprint(
         &one_shot_utxo.input.tx_hash,
         one_shot_utxo.input.output_index as i128,
     );
     let vault_oracle_spend_blueprint =
         vault_oracle_spend_blueprint(&vault_oracle_mint_blueprint.hash);
-    let vault_oracle_script_address = whisky::script_to_address(
-        network_id.parse().unwrap(),
-        &vault_oracle_spend_blueprint.hash,
-        None,
-    );
+
     let vault_oracle_datum = VaultOracleDatum::setup_vault_oracle_datum(
         &vault_oracle_mint_blueprint.hash,
         lp_decimal,
@@ -60,7 +49,10 @@ pub async fn setup_vault_oracle(
             data: WData::JSON(MintPolarity::RMint.to_json_string()),
             ex_units: Budget::default(),
         })
-        .tx_out(&vault_oracle_script_address, &vault_oracle_output_amount)
+        .tx_out(
+            &vault_oracle_spend_blueprint.address,
+            &vault_oracle_output_amount,
+        )
         .tx_out_inline_datum_value(&WData::JSON(vault_oracle_datum.to_json_string()))
         .change_address(my_address)
         .tx_in_collateral(

@@ -1,12 +1,9 @@
 use whisky::{data::PlutusDataJson, *};
 
-use crate::{
-    config::AppConfig,
-    scripts::{
-        deposit_intent::IntentRedeemer,
-        lp_token,
-        withdrawal_intent::{withdrawal_intent_mint_blueprint, WithdrawalIntentDatum},
-    },
+use crate::scripts::{
+    deposit_intent::IntentRedeemer,
+    lp_token::lp_token_mint_blueprint,
+    withdrawal_intent::{withdrawal_intent_spend_blueprint, WithdrawalIntentDatum},
 };
 
 pub async fn vault_withdrawal(
@@ -16,15 +13,9 @@ pub async fn vault_withdrawal(
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
-    let AppConfig { network_id, .. } = AppConfig::new();
+    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft);
+    let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(oracle_nft);
 
-    let lp_token_mint_blueprint = lp_token::lp_token_mint_blueprint(oracle_nft);
-    let withdrawal_intent_blueprint = withdrawal_intent_mint_blueprint(oracle_nft);
-    let withdrawal_intent_script_address = whisky::script_to_address(
-        network_id.parse().unwrap(),
-        &withdrawal_intent_blueprint.hash,
-        None,
-    );
     let withdrawal_intent_datum = WithdrawalIntentDatum::new(withdrawal_amount, user_address);
 
     let withdrawl_intent_output_amount = vec![
@@ -43,7 +34,7 @@ pub async fn vault_withdrawal(
             ex_units: Budget::default(),
         })
         .tx_out(
-            &withdrawal_intent_script_address,
+            &withdrawal_intent_blueprint.address,
             &withdrawl_intent_output_amount,
         )
         .tx_out_inline_datum_value(&WData::JSON(withdrawal_intent_datum.to_json_string()))

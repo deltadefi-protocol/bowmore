@@ -1,8 +1,7 @@
 use whisky::{data::PlutusDataJson, *};
 
-use crate::{
-    config::AppConfig,
-    scripts::deposit_intent::{self, DepositIntentDatum, IntentRedeemer},
+use crate::scripts::deposit_intent::{
+    deposit_intent_spend_blueprint, DepositIntentDatum, IntentRedeemer,
 };
 
 pub async fn vault_deposit(
@@ -11,20 +10,15 @@ pub async fn vault_deposit(
     user_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
+    lp_decimal: i128,
 ) -> Result<String, WError> {
-    let AppConfig { network_id, .. } = AppConfig::new();
+    let deposit_intent_blueprint = deposit_intent_spend_blueprint(oracle_nft, lp_decimal);
 
-    let deposit_intent_blueprint =
-        deposit_intent::deposit_intent_mint_blueprint(oracle_nft, 1000000);
-    let deposit_intent_script_address = whisky::script_to_address(
-        network_id.parse().unwrap(),
-        &deposit_intent_blueprint.hash,
-        None,
-    );
     let deposit_intent_datum = DepositIntentDatum::new(deposit_assets, user_address);
 
-    let deposit_intent_output_amount =
-        vec![Asset::new_from_str(&deposit_intent_blueprint.hash, "1")];
+    let mut deposit_intent_output_amount =
+        deposit_assets.iter().map(|a| a.clone()).collect::<Vec<_>>();
+    deposit_intent_output_amount.push(Asset::new_from_str(&deposit_intent_blueprint.hash, "1"));
 
     let mut tx_builder = TxBuilder::new_core();
     tx_builder
@@ -37,7 +31,7 @@ pub async fn vault_deposit(
             ex_units: Budget::default(),
         })
         .tx_out(
-            &deposit_intent_script_address,
+            &deposit_intent_blueprint.address,
             &deposit_intent_output_amount,
         )
         .tx_out_inline_datum_value(&WData::JSON(deposit_intent_datum.to_json_string()))

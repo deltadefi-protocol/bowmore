@@ -1,109 +1,160 @@
-use whisky::*;
+use std::collections::HashMap;
 
-pub struct VaultOracleUtxo {
-    pub script_utxo: UTxO,
-    pub redeemer: String,
-    pub datum: String,
-    pub script: ProvidedScriptSource,
-}
+use whisky::{
+    data::{ByteString, List, PlutusDataJson},
+    *,
+};
 
-pub struct VaultUtxo {
-    pub script_utxo: UTxO,
-    pub redeemer: String,
-    pub script: ProvidedScriptSource,
-}
-pub struct BurnWithdrawalIntent {
-    pub redeemer: String,
-    pub burn_amount: i128,
-    pub script: ProvidedScriptSource,
-}
-
-pub struct IntentUtxo {
-    pub script_utxo: UTxO,
-    pub redeemer: String,
-    pub script: ProvidedScriptSource,
-}
-pub struct IntentOutput {
-    pub output_amount: Vec<Asset>,
-    pub address: String,
-}
-
-pub struct OperatorOutput {
-    pub output_amount: Vec<Asset>,
-    pub address: String,
-}
-
-pub struct LPToken {
-    pub redeemer: String,
-    pub to_mint_asset: Asset,
-    pub script: ProvidedScriptSource,
-}
+use crate::{
+    config::AppConfig,
+    mainnet, preprod,
+    scripts::{
+        deposit_intent::{IntentRedeemer, SignedMessage},
+        lp_token::lp_token_mint_blueprint,
+        vault::{vault_spend_blueprint, VaultRedeemer},
+        vault_oracle::{vault_oracle_spend_blueprint, ProcessRedeemer, VaultOracleDatum},
+        withdrawal_intent::withdrawal_intent_mint_blueprint,
+    },
+    utils::{
+        batch_process::{
+            cal_lovelace_amount, cal_operator_fee, get_utxos_for_withdrawal,
+            process_withdrawal_intents,
+        },
+        blockfrost::get_utxo,
+    },
+};
 
 pub async fn process_vault_withdrawal(
+    oracle_nft: &str,
+    message: &str,
+    signatures: Vec<&str>,
+    ratio: i128,
     app_oracle_utxo: &UtxoInput,
-    vault_oracle_utxo: &VaultOracleUtxo,
-    vault_utxo: &[VaultUtxo],
-    withdrawal_intent_to_mint: &BurnWithdrawalIntent,
-    intent_utxos: &[IntentUtxo],
-    intent_outputs: &[IntentOutput],
-    operator_output: &OperatorOutput,
-    lp_token_to_mint: &LPToken,
-    my_address: &str,
+    intent_utxos: &[UTxO],
+    operator_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
+    // Decode the message to extract vault balance, prices, and UTXO reference
+    let decoded_message = SignedMessage::from_plutus_data(message)?;
+    let (vault_balance, prices_map, utxo_ref) = match &decoded_message {
+        SignedMessage::Message(balance, prices, ref_utxo) => (
+            balance.clone().int,
+            prices
+                .map
+                .iter()
+                .map(|(k, v)| (k.clone().bytes, v.clone().int))
+                .collect::<HashMap<String, i128>>(),
+            ref_utxo,
+        ),
+    };
+    let vault_oracle_tx_hash = (*utxo_ref.clone().fields).0.bytes;
+    let vault_oracle_output_index = (*utxo_ref.clone().fields).1.int;
+
+    // Destructure vault oracle
+    let vault_oracle_utxo =
+        get_utxo(&vault_oracle_tx_hash, vault_oracle_output_index as u32).await?;
+    let vault_oracle_input_datum: VaultOracleDatum =
+        VaultOracleDatum::from_plutus_data(&vault_oracle_utxo.output.plutus_data.unwrap())?;
+
+    let (
+        _app_oracle,
+        _pluggable_logic,
+        _node_pub_keys,
+        total_lp,
+        hwm_lp_value,
+        operator_charge,
+        _operator_key,
+        vault_cost,
+        _vault_script_hash,
+        _deposit_intent_script_hash,
+    ) = match &vault_oracle_input_datum {
+        VaultOracleDatum::Datum(
+            app_oracle,
+            pluggable_logic,
+            node_pub_keys,
+            total_lp,
+            hwm_lp_value,
+            operator_charge,
+            operator_key,
+            vault_cost,
+            vault_script_hash,
+            deposit_intent_script_hash,
+        ) => (
+            app_oracle.clone(),
+            pluggable_logic.clone(),
+            node_pub_keys.clone(),
+            total_lp.clone(),
+            hwm_lp_value.clone(),
+            operator_charge.clone(),
+            operator_key.clone(),
+            vault_cost.clone(),
+            vault_script_hash.clone(),
+            deposit_intent_script_hash.clone(),
+        ),
+    };
+
+    let operator_fee = cal_operator_fee(vault_balance, hwm_lp_value.int, operator_charge.int)?;
+
+    // Batch process withdrawal intents
+    let (intent_outputs, total_withdrawal_assets, total_usd_value_change, total_lp_minted, indices) =
+        process_withdrawal_intents(
+            intent_utxos,
+            &prices_map,
+            vault_balance,
+            total_lp.int,
+            operator_fee,
+            ratio,
+        )?;
+
+    // Create the intent redeemer
+    let signatures_bytestring: Vec<ByteString> =
+        signatures.iter().map(|s| ByteString::new(s)).collect();
+    let withdrawl_intent_redeemer = IntentRedeemer::BurnIntent(
+        indices,
+        ByteString::new(message),
+        List::new(&signatures_bytestring),
+    );
+
+    // Create the vault oracle datum
+    let updated_vault_oracle_datum = VaultOracleDatum::update_vault_oracle_datum(
+        &vault_oracle_input_datum,
+        total_lp.int - total_lp_minted,
+        vault_balance - operator_fee - total_usd_value_change,
+        vault_cost.int - total_usd_value_change,
+    );
+
+    // Create blueprints
+    let withdrawl_intent_blueprint = withdrawal_intent_mint_blueprint(oracle_nft);
+    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft);
+    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft);
+    let vault_spend_blueprint = vault_spend_blueprint(oracle_nft);
+
+    let (vault_utxos, return_amount) =
+        get_utxos_for_withdrawal(&vault_spend_blueprint.address, &total_withdrawal_assets).await?;
+
     let mut tx_builder = TxBuilder::new_core();
-
-    let VaultOracleUtxo {
-        script_utxo: vault_oracle_script_utxo,
-        redeemer: vault_oracle_redeemer,
-        datum: vault_oracle_datum,
-        script: vault_oracle_script,
-    } = vault_oracle_utxo;
-
-    let BurnWithdrawalIntent {
-        redeemer: withdrawal_intent_redeemer,
-        script: withdrawal_intent_script,
-        burn_amount,
-    } = withdrawal_intent_to_mint;
-
-    let LPToken {
-        redeemer: lp_token_redeemer,
-        to_mint_asset: lp_token_asset,
-        script: lp_token_script,
-    } = lp_token_to_mint;
-
-    let OperatorOutput {
-        output_amount: operator_output_amount,
-        address: operator_address,
-    } = operator_output;
-
-    let withdrawal_intent_script_hash = get_script_hash(
-        &withdrawal_intent_script.script_cbor,
-        withdrawal_intent_script.language_version.clone(),
-    )?;
-
     tx_builder
         // burn intents
         .mint_plutus_script_v3()
-        .mint(*burn_amount, &withdrawal_intent_script_hash, "")
-        .minting_script(&withdrawal_intent_script.script_cbor)
+        .mint(
+            intent_utxos.len() as i128,
+            &withdrawl_intent_blueprint.hash,
+            "",
+        )
+        .minting_script(&withdrawl_intent_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(withdrawal_intent_redeemer.to_string()),
-            ex_units: Budget { mem: 0, steps: 0 },
+            data: WData::JSON(withdrawl_intent_redeemer.to_json_string()),
+            ex_units: Budget::default(),
         })
         //mint lp token
         .mint_plutus_script_v3()
-        .mint(
-            lp_token_asset.quantity_i128(),
-            &lp_token_asset.policy(),
-            &lp_token_asset.name(),
-        )
-        .minting_script(&lp_token_script.script_cbor)
+        .mint(-total_lp_minted, &lp_token_mint_blueprint.hash, "")
+        .minting_script(&lp_token_mint_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(lp_token_redeemer.to_string()),
+            data: WData::JSON(ProcessRedeemer::ProcessWithdrawal.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
         // app oracle ref input
@@ -112,65 +163,91 @@ pub async fn process_vault_withdrawal(
         // vault oracle input
         .spending_plutus_script_v3()
         .tx_in(
-            &vault_oracle_script_utxo.input.tx_hash,
-            vault_oracle_script_utxo.input.output_index,
-            &vault_oracle_script_utxo.output.amount,
-            &vault_oracle_script_utxo.output.address,
+            &vault_oracle_utxo.input.tx_hash,
+            vault_oracle_utxo.input.output_index,
+            &vault_oracle_utxo.output.amount,
+            &vault_oracle_utxo.output.address,
         )
         .tx_in_inline_datum_present()
         .tx_in_redeemer_value(&WRedeemer {
-            data: WData::JSON(vault_oracle_redeemer.to_string()),
+            data: WData::JSON(ProcessRedeemer::ProcessWithdrawal.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
-        .tx_in_script(&vault_oracle_script.script_cbor)
+        .tx_in_script(&vault_oracle_blueprint.cbor)
         // vault oracle output
         .tx_out(
-            &vault_oracle_script_utxo.output.address,
-            &vault_oracle_script_utxo.output.amount,
+            &vault_oracle_blueprint.address,
+            &vault_oracle_utxo.output.amount,
         )
-        .tx_out_inline_datum_value(&WData::JSON(vault_oracle_datum.to_string())) // JSON string datum
-        // operator output
-        .tx_out(&operator_address, &operator_output_amount);
+        .tx_out_inline_datum_value(&WData::JSON(updated_vault_oracle_datum.to_json_string())); // JSON string datum
+
+    // operator output
+    if operator_fee > 0 {
+        let AppConfig { network_id, .. } = AppConfig::new();
+
+        let (lovelace_unit, usdm_unit) = if network_id.parse::<i128>().unwrap() == 0 {
+            (preprod::unit::LOVELACE, preprod::unit::USDM)
+        } else {
+            (mainnet::unit::LOVELACE, mainnet::unit::USDM)
+        };
+        let operator_output_amount = vec![
+            Asset::new_from_str(usdm_unit, &(operator_fee * ratio).to_string()),
+            Asset::new_from_str(
+                lovelace_unit,
+                &cal_lovelace_amount(&prices_map, operator_fee)
+                    .unwrap()
+                    .to_string(),
+            ),
+        ];
+        tx_builder.tx_out(&operator_address, &operator_output_amount);
+    }
 
     // add vault utxos
-    for vault in vault_utxo {
+    for vault in vault_utxos {
         tx_builder
             .tx_in(
-                &vault.script_utxo.input.tx_hash,
-                vault.script_utxo.input.output_index,
-                &vault.script_utxo.output.amount,
-                &vault.script_utxo.output.address,
+                &vault.input.tx_hash,
+                vault.input.output_index,
+                &vault.output.amount,
+                &vault.output.address,
             )
             .tx_in_redeemer_value(&WRedeemer {
-                data: WData::JSON(vault.redeemer.to_string()),
+                data: WData::JSON(VaultRedeemer::WithdrawFund.to_json_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&vault.script.script_cbor);
+            .tx_in_script(&vault_spend_blueprint.cbor);
+        // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
     }
 
     // add intent utxos
     for intent_utxo in intent_utxos {
         tx_builder
             .tx_in(
-                &intent_utxo.script_utxo.input.tx_hash,
-                intent_utxo.script_utxo.input.output_index,
-                &intent_utxo.script_utxo.output.amount,
-                &intent_utxo.script_utxo.output.address,
+                &intent_utxo.input.tx_hash,
+                intent_utxo.input.output_index,
+                &intent_utxo.output.amount,
+                &intent_utxo.output.address,
             )
             .tx_in_redeemer_value(&WRedeemer {
-                data: WData::JSON(intent_utxo.redeemer.to_string()),
+                data: WData::JSON("".to_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&intent_utxo.script.script_cbor);
+            .tx_in_script(&withdrawl_intent_blueprint.cbor);
+        // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
     }
 
     // add intent outputs
     for intent_output in intent_outputs {
-        tx_builder.tx_out(&intent_output.address, &intent_output.output_amount);
+        tx_builder.tx_out(&intent_output.address, &intent_output.amount);
+    }
+
+    // add vault change outputs
+    if !return_amount.is_empty() {
+        tx_builder.tx_out(&vault_spend_blueprint.address, &return_amount);
     }
 
     tx_builder
-        .change_address(my_address)
+        .change_address(operator_address)
         .tx_in_collateral(
             &collateral.input.tx_hash,
             collateral.input.output_index,
