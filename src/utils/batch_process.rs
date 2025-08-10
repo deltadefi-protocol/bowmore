@@ -1,10 +1,75 @@
-use std::collections::HashMap;
+use serde_json::{from_str, Value};
+use std::{collections::HashMap, u8};
 use whisky::{
     data::{Int, List},
     Asset, Output, UTxO, WError,
 };
 
 use crate::{config::AppConfig, mainnet, preprod, utils::blockfrost::get_utxo_by_address};
+
+pub fn parse_plutus_address_obj_to_bech32(plutus_data_address_obj: &str, network_id: u8) -> String {
+    let plutus_data_address: Value =
+        from_str(plutus_data_address_obj).expect("Invalid json string");
+    let plutus_data_key_obj = plutus_data_address.get("fields").unwrap();
+    let plutus_data_key_list = plutus_data_key_obj.as_array().unwrap();
+
+    let plutus_data_payment_key_obj = &plutus_data_key_list[0];
+    let plutus_data_stake_key_obj = &plutus_data_key_list[1];
+
+    let payment_key_hash = plutus_data_payment_key_obj["fields"][0]["bytes"]
+        .as_str()
+        .unwrap();
+
+    let csl_payment_credential =
+        if plutus_data_payment_key_obj["constructor"].as_u64().unwrap() == 0 {
+            whisky::csl::Credential::from_keyhash(
+                &whisky::csl::Ed25519KeyHash::from_hex(payment_key_hash).unwrap(),
+            )
+        } else {
+            whisky::csl::Credential::from_scripthash(
+                &whisky::csl::ScriptHash::from_hex(payment_key_hash).unwrap(),
+            )
+        };
+
+    if plutus_data_stake_key_obj["constructor"].as_u64().unwrap() == 0 {
+        let stake_key_hash = plutus_data_stake_key_obj["fields"][0]["fields"][0]["fields"][0]
+            ["bytes"]
+            .as_str()
+            .unwrap();
+        if plutus_data_stake_key_obj["fields"][0]["fields"][0]["constructor"]
+            .as_u64()
+            .unwrap()
+            == 0
+        {
+            whisky::csl::BaseAddress::new(
+                network_id,
+                &csl_payment_credential,
+                &whisky::csl::Credential::from_keyhash(
+                    &whisky::csl::Ed25519KeyHash::from_hex(stake_key_hash).unwrap(),
+                ),
+            )
+            .to_address()
+            .to_bech32(None)
+            .unwrap()
+        } else {
+            whisky::csl::BaseAddress::new(
+                network_id,
+                &csl_payment_credential,
+                &whisky::csl::Credential::from_scripthash(
+                    &whisky::csl::ScriptHash::from_hex(stake_key_hash).unwrap(),
+                ),
+            )
+            .to_address()
+            .to_bech32(None)
+            .unwrap()
+        }
+    } else {
+        whisky::csl::EnterpriseAddress::new(network_id, &csl_payment_credential)
+            .to_address()
+            .to_bech32(None)
+            .unwrap()
+    }
+}
 
 pub fn convert_value_to_usd(
     assets: &[Asset],
@@ -97,6 +162,8 @@ pub fn process_deposit_intent(
     total_lp: i128,
     operator_fee: i128,
 ) -> Result<(Output, Vec<Asset>, i128, i128), WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
     match &utxo.output.plutus_data {
         Some(plutus_data) => {
             let datum_json = whisky::csl::decode_plutus_datum_to_json_value(
@@ -109,11 +176,13 @@ pub fn process_deposit_intent(
                 WError::new("Failed to decode Plutus datum to JSON", "InvalidDatumError")
             })?;
 
-            // In a real implementation, you'd extract the correct fields based on your datum structure
-            // For now, assuming fields are "constructor", "fields", where fields[0] is address and fields[1] is value
-            let address = datum_json["fields"][0]["bytes"]
+            let address_value = datum_json["fields"][0]
                 .as_str()
                 .ok_or_else(|| WError::new("Missing address in JSON", "InvalidDataError"))?;
+            let address = parse_plutus_address_obj_to_bech32(
+                address_value,
+                network_id.parse::<u8>().unwrap(),
+            );
 
             // Extract assets from the value field
             let assets_array = datum_json["fields"][1]["map"]
@@ -255,11 +324,13 @@ pub fn process_withdrawal_intent(
                 WError::new("Failed to decode Plutus datum to JSON", "InvalidDatumError")
             })?;
 
-            // In a real implementation, you'd extract the correct fields based on your datum structure
-            // For now, assuming fields are "constructor", "fields", where fields[0] is address and fields[1] is value
-            let address = datum_json["fields"][0]["bytes"]
+            let address_value = datum_json["fields"][0]
                 .as_str()
                 .ok_or_else(|| WError::new("Missing address in JSON", "InvalidDataError"))?;
+            let address = parse_plutus_address_obj_to_bech32(
+                address_value,
+                network_id.parse::<u8>().unwrap(),
+            );
 
             // Extract lp_amount from the value field
             let lp_amount = datum_json["fields"][1]["int"]
