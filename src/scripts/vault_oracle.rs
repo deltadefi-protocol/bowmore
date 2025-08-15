@@ -1,8 +1,5 @@
-use whisky::{
-    data::{byte_string, output_reference, ByteString, Constr0, Credential, Int, List},
-    impl_constr_wrapper_type, UTxO,
-};
-use whisky::{ConstrEnum, ConstrWrapper};
+use whisky::data::{byte_string, output_reference, ByteString, Int, List};
+use whisky::ConstrEnum;
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum VaultOracleDatum {
@@ -17,8 +14,8 @@ pub enum VaultOracleDatum {
         Int,
         ByteString,
         ByteString,
-        // ByteString,
-        // ByteString,
+        ByteString,
+        ByteString,
     ),
 }
 
@@ -32,8 +29,8 @@ impl VaultOracleDatum {
     ) -> Self {
         let vault_spend_blueprint = vault_spend_blueprint(&oracle_nft);
         let deposit_mint_blueprint = deposit_intent_mint_blueprint(&oracle_nft, lp_decimal);
-        // let withdrawal_intent_script_hash = withdrawal_intent_mint_blueprint(&oracle_nft);
-        // let lp_token_mint_blueprint = lp_token_mint_blueprint(&oracle_nft);
+        let withdrawal_intent_script_hash = withdrawal_intent_mint_blueprint(&oracle_nft);
+        let lp_token_mint_blueprint = lp_token_mint_blueprint(&oracle_nft);
 
         VaultOracleDatum::Datum(
             ByteString::new("todo: app_oracle"),
@@ -51,9 +48,8 @@ impl VaultOracleDatum {
             Int::new(0),
             ByteString::new(&vault_spend_blueprint.hash),
             ByteString::new(&deposit_mint_blueprint.hash),
-            // todo: constr more fields
-            // ByteString::new(&withdrawal_intent_script_hash.hash),
-            // ByteString::new(&lp_token_mint_blueprint.hash),
+            ByteString::new(&withdrawal_intent_script_hash.hash),
+            ByteString::new(&lp_token_mint_blueprint.hash),
         )
     }
 
@@ -159,21 +155,21 @@ impl VaultOracleDatum {
         })?;
         let deposit_intent_script_hash = ByteString::new(deposit_intent_script_hash_bytes);
 
-        // // Extract withdrawal_intent_script_hash (field 10)
-        // let withdrawal_intent_script_hash_bytes =
-        //     fields[10]["bytes"].as_str().ok_or_else(|| {
-        //         whisky::WError::new(
-        //             "Missing withdrawal_intent_script_hash field",
-        //             "InvalidDataError",
-        //         )
-        //     })?;
-        // let withdrawal_intent_script_hash = ByteString::new(withdrawal_intent_script_hash_bytes);
+        // Extract withdrawal_intent_script_hash (field 10)
+        let withdrawal_intent_script_hash_bytes =
+            fields[10]["bytes"].as_str().ok_or_else(|| {
+                whisky::WError::new(
+                    "Missing withdrawal_intent_script_hash field",
+                    "InvalidDataError",
+                )
+            })?;
+        let withdrawal_intent_script_hash = ByteString::new(withdrawal_intent_script_hash_bytes);
 
-        // // Extract lp_token_script_hash (field 11)
-        // let lp_token_script_hash_bytes = fields[11]["bytes"].as_str().ok_or_else(|| {
-        //     whisky::WError::new("Missing lp_token_script_hash field", "InvalidDataError")
-        // })?;
-        // let lp_token_script_hash = ByteString::new(lp_token_script_hash_bytes);
+        // Extract lp_token_script_hash (field 11)
+        let lp_token_script_hash_bytes = fields[11]["bytes"].as_str().ok_or_else(|| {
+            whisky::WError::new("Missing lp_token_script_hash field", "InvalidDataError")
+        })?;
+        let lp_token_script_hash = ByteString::new(lp_token_script_hash_bytes);
 
         Ok(VaultOracleDatum::Datum(
             app_oracle,
@@ -186,8 +182,8 @@ impl VaultOracleDatum {
             vault_cost,
             vault_script_hash,
             deposit_intent_script_hash,
-            // withdrawal_intent_script_hash,
-            // lp_token_script_hash,
+            withdrawal_intent_script_hash,
+            lp_token_script_hash,
         ))
     }
 
@@ -209,8 +205,8 @@ impl VaultOracleDatum {
                 _vault_cost,
                 vault_script_hash,
                 deposit_intent_script_hash,
-                // withdrawal_intent_script_hash,
-                // lp_token,
+                withdrawal_intent_script_hash,
+                lp_token_script_hash,
             ) => VaultOracleDatum::Datum(
                 app_oracle.clone(),
                 pluggable_logic.clone(),
@@ -222,8 +218,8 @@ impl VaultOracleDatum {
                 Int::new(new_cost),
                 vault_script_hash.clone(),
                 deposit_intent_script_hash.clone(),
-                // withdrawal_intent_script_hash.clone(),
-                // lp_token.clone(),
+                withdrawal_intent_script_hash.clone(),
+                lp_token_script_hash.clone(),
             ),
         }
     }

@@ -20,8 +20,6 @@ mod tests {
     use super::*;
     use dotenv::dotenv;
     use std::env::var;
-    use whisky::csl::BaseAddress;
-    use whisky::csl::Credential;
 
     #[tokio::test]
     async fn test_app_sign_tx() {
@@ -30,31 +28,12 @@ mod tests {
             var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
             "preprod",
         );
-        let mut app_owner_wallet = get_operator_wallet();
+        let app_owner_wallet = get_operator_wallet();
 
-        let address = BaseAddress::new(
-            0,
-            &Credential::from_keyhash(
-                &app_owner_wallet
-                    .payment_account(0, 0)
-                    .get_account()
-                    .unwrap()
-                    .public_key
-                    .hash(),
-            ),
-            &Credential::from_keyhash(
-                &app_owner_wallet
-                    .payment_account(0, 0)
-                    .get_account()
-                    .unwrap()
-                    .public_key
-                    .hash(),
-            ),
-        )
-        .to_address()
-        .to_bech32(None)
-        .unwrap()
-        .to_string();
+        let address = app_owner_wallet
+            .get_change_address(AddressType::Payment)
+            .unwrap()
+            .to_string();
         println!("result: {:?}", address);
 
         let utxos = provider.fetch_address_utxos("addr_test1qz675ad696kf4zzt5lz8zy9t0720nspsvcmwfhcp7vufyruyevqwkea4n9wxr2ftrcqk77x6drq5slzpq4ded0kpkwvq89gd6e", None).await.unwrap();
