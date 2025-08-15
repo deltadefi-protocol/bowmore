@@ -67,3 +67,70 @@ pub async fn setup_vault_oracle(
 
     Ok(tx_builder.tx_hex())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::utils::wallet::get_operator_wallet;
+
+    use super::*;
+    use dotenv::dotenv;
+    use std::env::var;
+
+    #[tokio::test]
+    async fn test_setup_vault_oracle_tx() {
+        dotenv().ok();
+        let provider = BlockfrostProvider::new(
+            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
+            "preprod",
+        );
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(provider.clone())
+            .with_submitter(provider.clone());
+
+        let app_operator_key = app_owner_wallet
+            .addresses
+            .base_address
+            .as_ref()
+            .unwrap()
+            .payment_cred()
+            .to_hex();
+
+        let address = app_owner_wallet
+            .get_change_address(AddressType::Payment)
+            .unwrap()
+            .to_string();
+        println!("address: {:?}", address);
+
+        let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
+        let one_shot = utxos[0].clone();
+        println!("one_shot: {:?}", one_shot);
+        let wallet_utxos = utxos[1..].to_vec();
+        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
+
+        let tx_hex = setup_vault_oracle(
+            &address,
+            &wallet_utxos,
+            &collateral,
+            &one_shot,
+            1000000,
+            "",
+            50,
+            &app_operator_key,
+        )
+        .await
+        .unwrap();
+
+        let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
+
+        assert!(!signed_tx.is_empty());
+        println!("signed_tx: {:?}", signed_tx);
+
+        let result = app_owner_wallet.submit_tx(&signed_tx).await;
+        print!("result: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Transaction submission failed: {:?}",
+            result.err()
+        );
+    }
+}
