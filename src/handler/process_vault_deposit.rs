@@ -7,9 +7,7 @@ use whisky::{
 
 use crate::{
     scripts::{
-        deposit_intent::{deposit_intent_mint_blueprint, IntentRedeemer, SignedMessage},
-        lp_token::lp_token_mint_blueprint,
-        vault_oracle::{vault_oracle_spend_blueprint, ProcessRedeemer, VaultOracleDatum},
+        app_deposit_request::{ app_deposit_request_mint_blueprint, app_deposit_request_spend_blueprint}, deposit_intent::{deposit_intent_mint_blueprint, IntentRedeemer, SignedMessage}, lp_token::lp_token_mint_blueprint, vault_oracle::{vault_oracle_spend_blueprint, ProcessRedeemer, VaultOracleDatum}, MintPolarity
     },
     utils::{
         batch_process::{cal_operator_fee, process_deposit_intents},
@@ -18,10 +16,7 @@ use crate::{
 };
 
 pub struct AppDepositRequest {
-    pub redeemer: String,
-    pub address: String,
     pub datum: String,
-    pub script: ProvidedScriptSource,
 }
 
 pub async fn process_vault_deposit(
@@ -44,10 +39,10 @@ pub async fn process_vault_deposit(
             prices
                 .map
                 .iter()
-                .map(|(k, v)| (k.clone().bytes, v.clone().int))
+                .map(|(k, v)| (format!("{}{}", k.clone().0.bytes, k.clone().1.bytes), v.clone().int))
                 .collect::<HashMap<String, i128>>(),
             ref_utxo,
-        ),
+        ), 
     };
     let vault_oracle_tx_hash = (*utxo_ref.clone().fields).0.bytes;
     let vault_oracle_output_index = (*utxo_ref.clone().fields).1.int;
@@ -121,18 +116,8 @@ pub async fn process_vault_deposit(
     )?;
 
     let AppDepositRequest {
-        redeemer: app_deposit_request_redeemer,
         datum: app_deposit_request_datum,
-        address: app_deposit_request_address,
-        script: app_deposit_request_script,
     } = app_deposit_request_to_mint;
-
-    let app_deposit_request_script_hash = get_script_hash(
-        &app_deposit_request_script.script_cbor,
-        app_deposit_request_script.language_version.clone(),
-    )?;
-    app_deposit_request_output_amount
-        .push(Asset::new_from_str(&app_deposit_request_script_hash, "1"));
 
     // Create the intent redeemer
     let signatures_bytestring: Vec<ByteString> =
@@ -154,6 +139,11 @@ pub async fn process_vault_deposit(
     let deposit_intent_blueprint = deposit_intent_mint_blueprint(oracle_nft, lp_decimal)?;
     let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
     let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft)?;
+    let app_deposit_request_spend_blueprint = app_deposit_request_spend_blueprint()?;
+    let app_deposit_request_mint_blueprint = app_deposit_request_mint_blueprint()?;
+
+    app_deposit_request_output_amount
+    .push(Asset::new_from_str(&app_deposit_request_mint_blueprint.hash, "1"));
 
     // Build the transaction
     let mut tx_builder = TxBuilder::new_core();
@@ -173,15 +163,15 @@ pub async fn process_vault_deposit(
         })
         // mint app deposit request
         .mint_plutus_script_v3()
-        .mint(1, &app_deposit_request_script_hash, "")
-        .minting_script(&app_deposit_request_script.script_cbor)
+        .mint(1, &app_deposit_request_mint_blueprint.hash, "")
+        .minting_script(&app_deposit_request_mint_blueprint.cbor)
         // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(app_deposit_request_redeemer.to_string()),
+            data: WData::JSON(MintPolarity::RMint.to_json_string()),
             ex_units: Budget::default(),
         })
         .tx_out(
-            &app_deposit_request_address,
+            &app_deposit_request_spend_blueprint.hash,
             &app_deposit_request_output_amount,
         )
         .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_string()))
@@ -253,4 +243,76 @@ pub async fn process_vault_deposit(
         .await?;
 
     Ok(tx_builder.tx_hex())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{scripts::deposit_intent::deposit_intent_spend_blueprint, utils::wallet::get_operator_wallet};
+
+    use super::*;
+    use dotenv::dotenv;
+    use std::env::var;
+
+    #[tokio::test]
+    async fn test_process_vault_deposit() {
+        dotenv().ok();
+        let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
+        let oracle_nft = var("ORACLE_NFT").unwrap();
+        let provider = BlockfrostProvider::new(
+            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
+            "preprod",
+        );
+
+        let message = "";
+        let signatures = vec!["","","",""];
+        let app_oracle_utxo = &provider.fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft)).await.unwrap()[0];
+        
+        let deposit_intent_blueprint = deposit_intent_spend_blueprint(&oracle_nft, 1000000).unwrap();
+        let intent_utxos = provider.fetch_address_utxos(&deposit_intent_blueprint.address, Some(&deposit_intent_blueprint.hash)).await.unwrap();
+
+        let app_deposit_request_to_mint = AppDepositRequest{
+             datum: "todo".to_string(),
+        };
+
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(provider.clone())
+            .with_submitter(provider.clone());
+
+        let operator_address = app_owner_wallet
+            .get_change_address(AddressType::Payment)
+            .unwrap()
+            .to_string();
+        println!("address: {:?}", operator_address);
+
+        let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
+        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
+
+        let tx_hex = process_vault_deposit(
+            &oracle_nft,
+            message,
+            signatures,
+            &app_oracle_utxo.input,
+            &intent_utxos,
+            &app_deposit_request_to_mint,
+            &operator_address,
+            &utxos,
+            &collateral,
+            1000000,
+        )
+        .await
+        .unwrap();
+
+        let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
+
+        assert!(!signed_tx.is_empty());
+        println!("signed_tx: {:?}", signed_tx);
+
+        let result = app_owner_wallet.submit_tx(&signed_tx).await;
+        print!("result: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Transaction submission failed: {:?}",
+            result.err()
+        );
+    }
 }

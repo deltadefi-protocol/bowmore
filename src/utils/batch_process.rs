@@ -303,7 +303,7 @@ pub fn process_withdrawal_intent(
     vault_balance: i128,
     total_lp: i128,
     operator_fee: i128,
-    ratio: i128, // Ratio of USDM
+    ratio: i128, // Ratio of USDM in &
 ) -> Result<(Output, Vec<Asset>, i128, i128), WError> {
     let AppConfig { network_id, .. } = AppConfig::new();
 
@@ -343,7 +343,7 @@ pub fn process_withdrawal_intent(
             let output = Output {
                 address: address.to_string(),
                 amount: vec![
-                    Asset::new_from_str(usdm_unit, &(usd_value * ratio).to_string()),
+                    Asset::new_from_str(usdm_unit, &(usd_value * ratio / 100).to_string()),
                     Asset::new_from_str(
                         lovelace_unit,
                         &cal_lovelace_amount(prices, usd_value).unwrap().to_string(),
@@ -356,7 +356,7 @@ pub fn process_withdrawal_intent(
             Ok((
                 output,
                 vec![
-                    Asset::new_from_str(usdm_unit, &(usd_value * ratio).to_string()),
+                    Asset::new_from_str(usdm_unit, &(usd_value * ratio / 100).to_string()),
                     Asset::new_from_str(
                         lovelace_unit,
                         &cal_lovelace_amount(prices, usd_value).unwrap().to_string(),

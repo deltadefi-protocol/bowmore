@@ -43,7 +43,7 @@ pub async fn process_vault_withdrawal(
             prices
                 .map
                 .iter()
-                .map(|(k, v)| (k.clone().bytes, v.clone().int))
+                .map(|(k, v)| (format!("{}{}", k.clone().0.bytes, k.clone().1.bytes), v.clone().int))
                 .collect::<HashMap<String, i128>>(),
             ref_utxo,
         ),
@@ -265,4 +265,71 @@ pub async fn process_vault_withdrawal(
         .await?;
 
     Ok(tx_builder.tx_hex())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{scripts::withdrawal_intent::withdrawal_intent_spend_blueprint, utils::wallet::get_operator_wallet};
+
+    use super::*;
+    use dotenv::dotenv;
+    use std::env::var;
+
+    #[tokio::test]
+    async fn test_process_vault_withdrawal() {
+        dotenv().ok();
+        let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
+        let oracle_nft = var("ORACLE_NFT").unwrap();
+        let provider = BlockfrostProvider::new(
+            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
+            "preprod",
+        );
+
+        let message = "";
+        let signatures = vec!["","","",""];
+        let app_oracle_utxo = &provider.fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft)).await.unwrap()[0];
+        
+        let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(&oracle_nft).unwrap();
+        let intent_utxos = provider.fetch_address_utxos(&withdrawal_intent_blueprint.address, Some(&withdrawal_intent_blueprint.hash)).await.unwrap();
+
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(provider.clone())
+            .with_submitter(provider.clone());
+
+        let operator_address = app_owner_wallet
+            .get_change_address(AddressType::Payment)
+            .unwrap()
+            .to_string();
+        println!("address: {:?}", operator_address);
+
+        let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
+        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
+
+        let tx_hex = process_vault_withdrawal(
+            &oracle_nft,
+            message,
+            signatures,
+            50,
+            &app_oracle_utxo.input,
+            &intent_utxos,
+            &operator_address,
+            &utxos,
+            &collateral,
+        )
+        .await
+        .unwrap();
+
+        let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
+
+        assert!(!signed_tx.is_empty());
+        println!("signed_tx: {:?}", signed_tx);
+
+        let result = app_owner_wallet.submit_tx(&signed_tx).await;
+        print!("result: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Transaction submission failed: {:?}",
+            result.err()
+        );
+    }
 }

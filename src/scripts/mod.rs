@@ -1,5 +1,5 @@
 use whisky::ConstrEnum;
-
+pub mod app_deposit_request;
 pub mod deposit_intent;
 pub mod lp_token;
 pub mod types;

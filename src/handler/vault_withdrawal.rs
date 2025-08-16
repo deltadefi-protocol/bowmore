@@ -51,3 +51,60 @@ pub async fn vault_withdrawal(
 
     Ok(tx_builder.tx_hex())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::utils::wallet::get_operator_wallet;
+
+    use super::*;
+    use dotenv::dotenv;
+    use std::env::var;
+
+    #[tokio::test]
+    async fn test_vault_withdrawal() {
+        dotenv().ok();
+
+        let oracle_nft = var("ORACLE_NFT").unwrap();
+        let provider = BlockfrostProvider::new(
+            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
+            "preprod",
+        );
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(provider.clone())
+            .with_submitter(provider.clone());
+
+        let address = app_owner_wallet
+            .get_change_address(AddressType::Payment)
+            .unwrap()
+            .to_string();
+        println!("address: {:?}", address);
+
+        
+        let withdrawal_amount ="1000000";
+        let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
+        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
+
+        let tx_hex = vault_withdrawal(
+            &oracle_nft,
+            withdrawal_amount,
+            &address,
+            &utxos,
+            &collateral,
+        )
+        .await
+        .unwrap();
+
+        let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
+
+        assert!(!signed_tx.is_empty());
+        println!("signed_tx: {:?}", signed_tx);
+
+        let result = app_owner_wallet.submit_tx(&signed_tx).await;
+        print!("result: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Transaction submission failed: {:?}",
+            result.err()
+        );
+    }
+}

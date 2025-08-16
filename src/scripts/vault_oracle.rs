@@ -1,5 +1,7 @@
 use whisky::data::{byte_string, output_reference, ByteString, Int, List};
 use whisky::ConstrEnum;
+use dotenv::dotenv;
+use std::env::var;
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum VaultOracleDatum {
@@ -27,19 +29,27 @@ impl VaultOracleDatum {
         operator_charge: i128,
         operator_key: &str,
     ) -> Result<Self, whisky::WError> {
+        dotenv().ok();
+
+        let app_oracle = var("APP_ORACLE_NFT").unwrap();
+        let node_pub_key_1 = var("NODE_PUB_KEY_1").unwrap();
+        let node_pub_key_2 = var("NODE_PUB_KEY_2").unwrap();
+        let node_pub_key_3 = var("NODE_PUB_KEY_3").unwrap();
+        let node_pub_key_4 = var("NODE_PUB_KEY_4").unwrap();
+
         let vault_spend_blueprint = vault_spend_blueprint(&oracle_nft)?;
         let deposit_mint_blueprint = deposit_intent_mint_blueprint(&oracle_nft, lp_decimal)?;
         let withdrawal_intent_script_hash = withdrawal_intent_mint_blueprint(&oracle_nft)?;
         let lp_token_mint_blueprint = lp_token_mint_blueprint(&oracle_nft)?;
 
         Ok(VaultOracleDatum::Datum(
-            ByteString::new("4382fdd43cea9b45c712c4900c8b1596f92b5442901c0b5dacdc6839"), // todo
+            ByteString::new(&app_oracle),
             ByteString::new(pluggable_logic),
             List::new(&vec![
-                ByteString::new("b5ea75ba2eac9a884ba7c47110ab7f94f9c0306636e4df01f338920f"), // todo
-                ByteString::new("b5ea75ba2eac9a884ba7c47110ab7f94f9c0306636e4df01f338920f"), // todo
-                ByteString::new("b5ea75ba2eac9a884ba7c47110ab7f94f9c0306636e4df01f338920f"), // todo
-                ByteString::new("b5ea75ba2eac9a884ba7c47110ab7f94f9c0306636e4df01f338920f"), // todo
+                ByteString::new(&node_pub_key_1),
+                ByteString::new(&node_pub_key_2),
+                ByteString::new(&node_pub_key_3),
+                ByteString::new(&node_pub_key_4),
             ]),
             Int::new(0),
             Int::new(0),
@@ -224,39 +234,6 @@ impl VaultOracleDatum {
         }
     }
 }
-// #[derive(Debug, Clone)]
-// pub struct VaultOracleDatum(
-//     Constr0<
-//         Box<(
-//             ByteString,
-//             ByteString,
-//             List<ByteString>,
-//             Int,
-//             Int,
-//             Int,
-//             ByteString,
-//             Int,
-//             ByteString,
-//             ByteString,
-//             // ByteString, todo: + number of fileds in whisky contructor
-//             // ByteString,
-//         )>,
-//     >,
-// );
-// impl_constr_wrapper_type!(VaultOracleDatum, 0, [
-//   (app_oracle: ByteString, &str),
-//   (pluggable_logic: ByteString, &str),
-//   (node_pub_key: List<ByteString>, &[ByteString]),
-//   (total_lp: Int, i128),
-//   (hwm_lp_value: Int, i128),
-//   (operator_charge: Int, i128),
-//   (operator_key: ByteString, &str),
-//   (vault_cost: Int, i128),
-//   (vault_script_hash: ByteString, &str),
-//   (deposit_intent_script_hash: ByteString, &str),
-// //   (withdrawal_intent_script_hash: ByteString, &str),
-// //   (lp_token: ByteString, &str),
-// ]);
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum ProcessRedeemer {

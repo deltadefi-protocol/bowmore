@@ -11,7 +11,7 @@ pub enum IntentRedeemer {
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum SignedMessage {
-    Message(Int, Map<ByteString, Int>, OutputReference),
+    Message(Int, Map<(ByteString, ByteString), Int>, OutputReference),
 }
 
 impl SignedMessage {
@@ -47,14 +47,17 @@ impl SignedMessage {
 
         let mut prices_map = Map::new(&[]);
         for entry in prices_array {
-            let key_bytes = entry["k"]["bytes"].as_str().ok_or_else(|| {
+            let policy_id_byte = entry["k"][0]["bytes"].as_str().ok_or_else(|| {
                 WError::new("Invalid policy ID in prices map", "InvalidDataError")
+            })?;
+            let asset_name_byte = entry["k"][1]["bytes"].as_str().ok_or_else(|| {
+                WError::new("Invalid asset name in prices map", "InvalidDataError")
             })?;
             let value_int = entry["v"]["int"].as_i64().ok_or_else(|| {
                 WError::new("Invalid price value in prices map", "InvalidDataError")
             })?;
 
-            let key = ByteString::new(key_bytes);
+            let key = (ByteString::new(policy_id_byte),ByteString::new(asset_name_byte));
             let value = Int::new(value_int as i128);
 
             prices_map.insert(key, value);
