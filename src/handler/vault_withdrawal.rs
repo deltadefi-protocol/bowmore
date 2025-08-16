@@ -13,8 +13,8 @@ pub async fn vault_withdrawal(
     inputs: &[UTxO],
     collateral: &UTxO,
 ) -> Result<String, WError> {
-    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft);
-    let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(oracle_nft);
+    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
+    let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(oracle_nft)?;
 
     let withdrawal_intent_datum = WithdrawalIntentDatum::new(withdrawal_amount, user_address);
 

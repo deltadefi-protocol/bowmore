@@ -131,10 +131,10 @@ pub async fn process_vault_withdrawal(
     );
 
     // Create blueprints
-    let withdrawl_intent_blueprint = withdrawal_intent_mint_blueprint(oracle_nft);
-    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft);
-    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft);
-    let vault_spend_blueprint = vault_spend_blueprint(oracle_nft);
+    let withdrawl_intent_blueprint = withdrawal_intent_mint_blueprint(oracle_nft)?;
+    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
+    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft)?;
+    let vault_spend_blueprint = vault_spend_blueprint(oracle_nft)?;
 
     let (vault_utxos, return_amount) =
         get_utxos_for_withdrawal(&vault_spend_blueprint.address, &total_withdrawal_assets).await?;

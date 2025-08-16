@@ -18,9 +18,9 @@ pub async fn setup_vault_oracle(
     let vault_oracle_mint_blueprint = vault_oracle_mint_blueprint(
         &one_shot_utxo.input.tx_hash,
         one_shot_utxo.input.output_index as i128,
-    );
+    )?;
     let vault_oracle_spend_blueprint =
-        vault_oracle_spend_blueprint(&vault_oracle_mint_blueprint.hash);
+        vault_oracle_spend_blueprint(&vault_oracle_mint_blueprint.hash)?;
 
     let vault_oracle_datum = VaultOracleDatum::setup_vault_oracle_datum(
         &vault_oracle_mint_blueprint.hash,
@@ -28,7 +28,7 @@ pub async fn setup_vault_oracle(
         pluggable_logic,
         operator_charge,
         operator_key,
-    );
+    )?;
 
     let vault_oracle_output_amount =
         vec![Asset::new_from_str(&vault_oracle_mint_blueprint.hash, "1")];

@@ -6,6 +6,7 @@ pub mod types;
 pub mod vault;
 pub mod vault_oracle;
 pub mod withdrawal_intent;
+pub mod plutus_loader;
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum MintPolarity {
     RMint,

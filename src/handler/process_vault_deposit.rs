@@ -151,9 +151,9 @@ pub async fn process_vault_deposit(
         vault_cost.int + total_usd_value_change,
     );
     // Create blueprints
-    let deposit_intent_blueprint = deposit_intent_mint_blueprint(oracle_nft, lp_decimal);
-    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft);
-    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft);
+    let deposit_intent_blueprint = deposit_intent_mint_blueprint(oracle_nft, lp_decimal)?;
+    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
+    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft)?;
 
     // Build the transaction
     let mut tx_builder = TxBuilder::new_core();
