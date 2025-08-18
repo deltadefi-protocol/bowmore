@@ -1,8 +1,9 @@
-use whisky::{
-    data::{byte_string, ByteString, Constr0, Credential, Value}, Asset, ConstrEnum
-};
 use dotenv::dotenv;
 use std::env::var;
+use whisky::{
+    data::{byte_string, ByteString, Constr0, Credential, Value},
+    Asset, ConstrEnum,
+};
 
 use whisky::{
     utils::blueprint::{MintingBlueprint, SpendingBlueprint},
@@ -10,7 +11,6 @@ use whisky::{
 };
 
 use crate::config::AppConfig;
-
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum UserAccount {
@@ -25,11 +25,28 @@ pub enum AppDepositRequestDatum {
 }
 
 impl AppDepositRequestDatum {
-    pub fn new(assets: &[Asset], account: Constr0<Box<(ByteString, Credential, Credential)>>) -> Self {
+    pub fn new(
+        assets: &[Asset],
+        account_type: &str,
+        account_id: &str,
+        master_key: (&str, bool),
+        operation_key: (&str, bool),
+    ) -> Self {
         let m_value = Value::from_asset_vec(assets);
+        let account = Constr0::new(Box::new((
+            ByteString::new(account_id),
+            Credential::new(master_key),
+            Credential::new(operation_key),
+        )));
 
-        // todo
-        AppDepositRequestDatum::Datum(UserAccount::UserSpotAccount(account), m_value)
+        let account_info = match account_type {
+            "spot_account" => UserAccount::UserSpotAccount(account),
+            "funding_account" => UserAccount::UserFundingAccount(account),
+            "mobile_account" => UserAccount::UserMobileAccount(account),
+            _ => panic!("Unknown account type"),
+        };
+
+        AppDepositRequestDatum::Datum(account_info, m_value)
     }
 }
 
@@ -40,12 +57,12 @@ pub fn app_deposit_request_mint_blueprint() -> Result<MintingBlueprint, whisky::
 
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
     blueprint
-    .param_script(
-        &compiled_code,
-        &[&byte_string(&app_oracle_nft).to_string()],
-        BuilderDataType::JSON,
-    )
-    .unwrap();
+        .param_script(
+            &compiled_code,
+            &[&byte_string(&app_oracle_nft).to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
     Ok(blueprint)
 }
 
@@ -55,14 +72,15 @@ pub fn app_deposit_request_spend_blueprint() -> Result<SpendingBlueprint, whisky
     let compiled_code = var("APP_DEPOSIT_REQUEST_SPEND_CBOR").unwrap();
 
     let AppConfig { network_id, .. } = AppConfig::new();
-    let mut blueprint = SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
+    let mut blueprint =
+        SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
     blueprint
-    .param_script(
-        &compiled_code,
-        &[&byte_string(&app_oracle_nft).to_string()],
-        BuilderDataType::JSON,
-    )
-    .unwrap();
+        .param_script(
+            &compiled_code,
+            &[&byte_string(&app_oracle_nft).to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
     Ok(blueprint)
 }
 

@@ -7,7 +7,14 @@ use whisky::{
 
 use crate::{
     scripts::{
-        app_deposit_request::{ app_deposit_request_mint_blueprint, app_deposit_request_spend_blueprint}, deposit_intent::{deposit_intent_mint_blueprint, IntentRedeemer, SignedMessage}, lp_token::lp_token_mint_blueprint, vault_oracle::{vault_oracle_spend_blueprint, ProcessRedeemer, VaultOracleDatum}, MintPolarity
+        app_deposit_request::{
+            app_deposit_request_mint_blueprint, app_deposit_request_spend_blueprint,
+            AppDepositRequestDatum,
+        },
+        deposit_intent::{deposit_intent_mint_blueprint, IntentRedeemer, SignedMessage},
+        lp_token::lp_token_mint_blueprint,
+        vault_oracle::{vault_oracle_spend_blueprint, ProcessRedeemer, VaultOracleDatum},
+        MintPolarity,
     },
     utils::{
         batch_process::{cal_operator_fee, process_deposit_intents},
@@ -15,17 +22,20 @@ use crate::{
     },
 };
 
-pub struct AppDepositRequest {
-    pub datum: String,
+pub struct AccountInfo {
+    pub account_type: String,
+    pub account_id: String,
+    pub master_key: (String, bool),
+    pub operation_key: (String, bool),
 }
 
 pub async fn process_vault_deposit(
     oracle_nft: &str,
     message: &str,
     signatures: Vec<&str>,
+    account_info: &AccountInfo,
     app_oracle_utxo: &UtxoInput,
     intent_utxos: &[UTxO],
-    app_deposit_request_to_mint: &AppDepositRequest,
     operator_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
@@ -39,10 +49,15 @@ pub async fn process_vault_deposit(
             prices
                 .map
                 .iter()
-                .map(|(k, v)| (format!("{}{}", k.clone().0.bytes, k.clone().1.bytes), v.clone().int))
+                .map(|(k, v)| {
+                    (
+                        format!("{}{}", k.clone().0.bytes, k.clone().1.bytes),
+                        v.clone().int,
+                    )
+                })
                 .collect::<HashMap<String, i128>>(),
             ref_utxo,
-        ), 
+        ),
     };
     let vault_oracle_tx_hash = (*utxo_ref.clone().fields).0.bytes;
     let vault_oracle_output_index = (*utxo_ref.clone().fields).1.int;
@@ -98,26 +113,30 @@ pub async fn process_vault_deposit(
 
     let operator_fee = cal_operator_fee(vault_balance, hwm_lp_value.int, operator_charge.int)?;
 
-    // Batch process deposit intents
-    let (
-        intent_outputs,
-        mut app_deposit_request_output_amount,
-        total_usd_value_change,
-        total_lp_minted,
-        indices,
-    ) = process_deposit_intents(
-        intent_utxos,
-        &prices_map,
-        "todo",
-        lp_decimal,
-        vault_balance,
-        total_lp.int,
-        operator_fee,
-    )?;
+    // Create blueprints
+    let deposit_intent_blueprint = deposit_intent_mint_blueprint(oracle_nft, lp_decimal)?;
+    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
+    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft)?;
+    let app_deposit_request_spend_blueprint = app_deposit_request_spend_blueprint()?;
+    let app_deposit_request_mint_blueprint = app_deposit_request_mint_blueprint()?;
 
-    let AppDepositRequest {
-        datum: app_deposit_request_datum,
-    } = app_deposit_request_to_mint;
+    // Batch process deposit intents
+    let (intent_outputs, total_deposit_asset, total_usd_value_change, total_lp_minted, indices) =
+        process_deposit_intents(
+            intent_utxos,
+            &prices_map,
+            &lp_token_mint_blueprint.hash,
+            lp_decimal,
+            vault_balance,
+            total_lp.int,
+            operator_fee,
+        )?;
+
+    let mut app_deposit_request_output_amount = total_deposit_asset.clone();
+    app_deposit_request_output_amount.push(Asset::new_from_str(
+        &app_deposit_request_mint_blueprint.hash,
+        "1",
+    ));
 
     // Create the intent redeemer
     let signatures_bytestring: Vec<ByteString> =
@@ -135,15 +154,21 @@ pub async fn process_vault_deposit(
         vault_balance - operator_fee + total_usd_value_change,
         vault_cost.int + total_usd_value_change,
     );
-    // Create blueprints
-    let deposit_intent_blueprint = deposit_intent_mint_blueprint(oracle_nft, lp_decimal)?;
-    let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
-    let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft)?;
-    let app_deposit_request_spend_blueprint = app_deposit_request_spend_blueprint()?;
-    let app_deposit_request_mint_blueprint = app_deposit_request_mint_blueprint()?;
 
-    app_deposit_request_output_amount
-    .push(Asset::new_from_str(&app_deposit_request_mint_blueprint.hash, "1"));
+    // Create the app deposit request datum
+    let app_deposit_request_datum = AppDepositRequestDatum::new(
+        &total_deposit_asset,
+        &account_info.account_type.as_str(),
+        &account_info.account_id.as_str(),
+        (
+            &account_info.master_key.0.as_str(),
+            account_info.master_key.1,
+        ),
+        (
+            &account_info.operation_key.0.as_str(),
+            account_info.operation_key.1,
+        ),
+    );
 
     // Build the transaction
     let mut tx_builder = TxBuilder::new_core();
@@ -174,7 +199,7 @@ pub async fn process_vault_deposit(
             &app_deposit_request_spend_blueprint.hash,
             &app_deposit_request_output_amount,
         )
-        .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_string()))
+        .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_json_string()))
         //mint lp token
         .mint_plutus_script_v3()
         .mint(total_lp_minted, &lp_token_mint_blueprint.hash, "")
@@ -247,7 +272,9 @@ pub async fn process_vault_deposit(
 
 #[cfg(test)]
 mod tests {
-    use crate::{scripts::deposit_intent::deposit_intent_spend_blueprint, utils::wallet::get_operator_wallet};
+    use crate::{
+        scripts::deposit_intent::deposit_intent_spend_blueprint, utils::wallet::get_operator_wallet,
+    };
 
     use super::*;
     use dotenv::dotenv;
@@ -264,15 +291,21 @@ mod tests {
         );
 
         let message = "";
-        let signatures = vec!["","","",""];
-        let app_oracle_utxo = &provider.fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft)).await.unwrap()[0];
-        
-        let deposit_intent_blueprint = deposit_intent_spend_blueprint(&oracle_nft, 1000000).unwrap();
-        let intent_utxos = provider.fetch_address_utxos(&deposit_intent_blueprint.address, Some(&deposit_intent_blueprint.hash)).await.unwrap();
+        let signatures = vec!["", "", "", ""];
+        let app_oracle_utxo = &provider
+            .fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft))
+            .await
+            .unwrap()[0];
 
-        let app_deposit_request_to_mint = AppDepositRequest{
-             datum: "todo".to_string(),
-        };
+        let deposit_intent_blueprint =
+            deposit_intent_spend_blueprint(&oracle_nft, 1000000).unwrap();
+        let intent_utxos = provider
+            .fetch_address_utxos(
+                &deposit_intent_blueprint.address,
+                Some(&deposit_intent_blueprint.hash),
+            )
+            .await
+            .unwrap();
 
         let app_owner_wallet = get_operator_wallet()
             .with_fetcher(provider.clone())
@@ -287,13 +320,20 @@ mod tests {
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
         let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
+        let account_info = AccountInfo {
+            account_type: "UserSpotAccount".to_string(),
+            account_id: "test_account_id".to_string(),
+            master_key: ("master_key".to_string(), true),
+            operation_key: ("operation_key".to_string(), true),
+        };
+
         let tx_hex = process_vault_deposit(
             &oracle_nft,
             message,
             signatures,
+            &account_info,
             &app_oracle_utxo.input,
             &intent_utxos,
-            &app_deposit_request_to_mint,
             &operator_address,
             &utxos,
             &collateral,
