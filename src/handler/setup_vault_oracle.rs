@@ -75,17 +75,16 @@ mod tests {
     use super::*;
     use dotenv::dotenv;
     use std::env::var;
+    use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
     #[tokio::test]
     async fn test_setup_vault_oracle_tx() {
         dotenv().ok();
-        let provider = BlockfrostProvider::new(
-            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
-            "preprod",
-        );
+        let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
+        let ogmios_provider = OgmiosProvider::new(var("OGMIOS_URL").unwrap().as_str());
         let app_owner_wallet = get_operator_wallet()
-            .with_fetcher(provider.clone())
-            .with_submitter(provider.clone());
+            .with_fetcher(kupo_provider.clone())
+            .with_submitter(ogmios_provider.clone());
 
         let app_operator_key = app_owner_wallet
             .addresses

@@ -10,7 +10,7 @@ use whisky::{
     BuilderDataType, LanguageVersion,
 };
 
-use crate::config::AppConfig;
+use crate::{config::AppConfig, scripts::plutus_loader::get_compiled_code_by_index};
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum UserAccount {
@@ -53,9 +53,8 @@ impl AppDepositRequestDatum {
 pub fn app_deposit_request_mint_blueprint() -> Result<MintingBlueprint, whisky::WError> {
     dotenv().ok();
     let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
-    let compiled_code = var("APP_DEPOSIT_REQUEST_MINT_CBOR").unwrap();
-
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
+    let compiled_code = get_compiled_code_by_index(14)?; // Using index 14 for app deposit request mint
     blueprint
         .param_script(
             &compiled_code,
@@ -69,11 +68,11 @@ pub fn app_deposit_request_mint_blueprint() -> Result<MintingBlueprint, whisky::
 pub fn app_deposit_request_spend_blueprint() -> Result<SpendingBlueprint, whisky::WError> {
     dotenv().ok();
     let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
-    let compiled_code = var("APP_DEPOSIT_REQUEST_SPEND_CBOR").unwrap();
-
     let AppConfig { network_id, .. } = AppConfig::new();
+
     let mut blueprint =
         SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
+    let compiled_code = get_compiled_code_by_index(15)?; // Using index 15 for app deposit request spend
     blueprint
         .param_script(
             &compiled_code,

@@ -43,7 +43,12 @@ pub async fn process_vault_withdrawal(
             prices
                 .map
                 .iter()
-                .map(|(k, v)| (format!("{}{}", k.clone().0.bytes, k.clone().1.bytes), v.clone().int))
+                .map(|(k, v)| {
+                    (
+                        format!("{}{}", k.clone().0.bytes, k.clone().1.bytes),
+                        v.clone().int,
+                    )
+                })
                 .collect::<HashMap<String, i128>>(),
             ref_utxo,
         ),
@@ -269,7 +274,10 @@ pub async fn process_vault_withdrawal(
 
 #[cfg(test)]
 mod tests {
-    use crate::{scripts::withdrawal_intent::withdrawal_intent_spend_blueprint, utils::wallet::get_operator_wallet};
+    use crate::{
+        scripts::withdrawal_intent::withdrawal_intent_spend_blueprint,
+        utils::wallet::get_operator_wallet,
+    };
 
     use super::*;
     use dotenv::dotenv;
@@ -286,11 +294,20 @@ mod tests {
         );
 
         let message = "";
-        let signatures = vec!["","","",""];
-        let app_oracle_utxo = &provider.fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft)).await.unwrap()[0];
-        
+        let signatures = vec!["", "", "", ""];
+        let app_oracle_utxo = &provider
+            .fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft))
+            .await
+            .unwrap()[0];
+
         let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(&oracle_nft).unwrap();
-        let intent_utxos = provider.fetch_address_utxos(&withdrawal_intent_blueprint.address, Some(&withdrawal_intent_blueprint.hash)).await.unwrap();
+        let intent_utxos = provider
+            .fetch_address_utxos(
+                &withdrawal_intent_blueprint.address,
+                Some(&withdrawal_intent_blueprint.hash),
+            )
+            .await
+            .unwrap();
 
         let app_owner_wallet = get_operator_wallet()
             .with_fetcher(provider.clone())
