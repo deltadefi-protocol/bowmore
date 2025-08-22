@@ -32,9 +32,11 @@ impl AppDepositRequestDatum {
         master_key: (&str, bool),
         operation_key: (&str, bool),
     ) -> Self {
+        let clean_account_id = account_id.replace("-", "");
+
         let m_value = Value::from_asset_vec(assets);
         let account = Constr0::new(Box::new((
-            ByteString::new(account_id),
+            ByteString::new(&clean_account_id),
             Credential::new(master_key),
             Credential::new(operation_key),
         )));

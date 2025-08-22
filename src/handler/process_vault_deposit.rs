@@ -6,6 +6,7 @@ use whisky::{
 };
 
 use crate::{
+    preprod,
     scripts::{
         app_deposit_request::{
             app_deposit_request_mint_blueprint, app_deposit_request_spend_blueprint,
@@ -18,7 +19,7 @@ use crate::{
     },
     utils::{
         batch_process::{cal_operator_fee, process_deposit_intents},
-        blockfrost::get_utxo,
+        kupo::get_utxo,
     },
 };
 
@@ -50,10 +51,16 @@ pub async fn process_vault_deposit(
                 .map
                 .iter()
                 .map(|(k, v)| {
-                    (
-                        format!("{}{}", k.clone().0.bytes, k.clone().1.bytes),
-                        v.clone().int,
-                    )
+                    let policy_id = k.clone().0.bytes;
+                    let asset_name = k.clone().1.bytes;
+                    if policy_id.is_empty() {
+                        (
+                            format!("{}{}", preprod::unit::LOVELACE, asset_name),
+                            v.clone().int,
+                        )
+                    } else {
+                        (format!("{}{}", policy_id, asset_name), v.clone().int)
+                    }
                 })
                 .collect::<HashMap<String, i128>>(),
             ref_utxo,
@@ -78,7 +85,7 @@ pub async fn process_vault_deposit(
         _operator_key,
         vault_cost,
         _vault_script_hash,
-        deposit_intent_script_hash,
+        _deposit_intent_script_hash,
         _withdrawal_intent_script_hash,
         _lp_token_script_hash,
     ) = match &vault_oracle_input_datum {
@@ -155,6 +162,10 @@ pub async fn process_vault_deposit(
         vault_cost.int + total_usd_value_change,
     );
 
+    println!(
+        "total_deposit_asset: {:?}, total_lp_minted: {}, total_usd_value_change: {}, operator_fee: {}",
+        total_deposit_asset, total_lp_minted, total_usd_value_change, operator_fee
+    );
     // Create the app deposit request datum
     let app_deposit_request_datum = AppDepositRequestDatum::new(
         &total_deposit_asset,
@@ -177,7 +188,7 @@ pub async fn process_vault_deposit(
         .mint_plutus_script_v3()
         .mint(
             intent_utxos.len() as i128,
-            &deposit_intent_script_hash.bytes,
+            &deposit_intent_blueprint.hash,
             "",
         )
         .minting_script(&deposit_intent_blueprint.cbor)
@@ -196,7 +207,7 @@ pub async fn process_vault_deposit(
             ex_units: Budget::default(),
         })
         .tx_out(
-            &app_deposit_request_spend_blueprint.hash,
+            &app_deposit_request_spend_blueprint.address,
             &app_deposit_request_output_amount,
         )
         .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_json_string()))
@@ -209,9 +220,6 @@ pub async fn process_vault_deposit(
             data: WData::JSON(ProcessRedeemer::ProcessDeposit.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
-        // app oracle ref input
-        .read_only_tx_in_reference(&app_oracle_utxo.tx_hash, app_oracle_utxo.output_index, None)
-        .tx_in_inline_datum_present()
         // vault oracle input
         .spending_plutus_script_v3()
         .tx_in(
@@ -226,6 +234,9 @@ pub async fn process_vault_deposit(
             ex_units: Budget { mem: 0, steps: 0 },
         })
         .tx_in_script(&vault_oracle_blueprint.cbor)
+        // app oracle ref input
+        .read_only_tx_in_reference(&app_oracle_utxo.tx_hash, app_oracle_utxo.output_index, None)
+        .tx_in_inline_datum_present()
         // vault oracle output
         .tx_out(
             &vault_oracle_blueprint.address,
@@ -236,6 +247,7 @@ pub async fn process_vault_deposit(
     // add intent utxos
     for intent_utxo in intent_utxos {
         tx_builder
+            .spending_plutus_script_v3()
             .tx_in(
                 &intent_utxo.input.tx_hash,
                 intent_utxo.input.output_index,
@@ -243,10 +255,11 @@ pub async fn process_vault_deposit(
                 &intent_utxo.output.address,
             )
             .tx_in_redeemer_value(&WRedeemer {
-                data: WData::JSON("".to_string()),
+                data: WData::JSON(ByteString::new("").to_json_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&deposit_intent_blueprint.cbor);
+            .tx_in_script(&deposit_intent_blueprint.cbor)
+            .tx_in_inline_datum_present();
         // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
     }
 
@@ -279,37 +292,39 @@ mod tests {
     use super::*;
     use dotenv::dotenv;
     use std::env::var;
+    use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
     #[tokio::test]
     async fn test_process_vault_deposit() {
         dotenv().ok();
+        let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
+        let ogmios_provider = OgmiosProvider::new(var("OGMIOS_URL").unwrap().as_str());
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(kupo_provider.clone())
+            .with_submitter(ogmios_provider.clone());
+
         let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
         let oracle_nft = var("ORACLE_NFT").unwrap();
-        let provider = BlockfrostProvider::new(
-            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
-            "preprod",
-        );
 
-        let message = "";
-        let signatures = vec!["", "", "", ""];
-        let app_oracle_utxo = &provider
-            .fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft))
+        let message = "d8799f00a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f5820b64b0f674d6ad612fc24070b3a5c022d7005aa2b3a8384bcf707eb1134016de700ffff";
+        let signatures = vec!["d86ed508ea0d5fad344cd443f8f56662cfe3969fc0cd0849534aa0a20012fe087af29819162942af434d5210e444e94344c7597ad670d46703a3b5f6001f0a0f", "dba23aba015d4d7e8548247e45802392240881102d6b3ad1c99889ea8d4d9411203529baa3be7b66d5b6cb5a3a8a2436bd567b889b055551916914b9285e870b", "66482eef848bf1e1b10dbc3312c66e947b8b0ea7ec4855454cfa355efc231f58762c977e12ac67a8fc58d914085fa83290b40fd1fe9909f4e7e5d5aaa2d7f302", "cda27b436f09bc9df2e3871c863421da816cb4033997f228609a6e36cafc3a290ffec6ecb8d82e6315283eeec7a7f0c9df040a239d70256e6638830e6e31e608"];
+        let app_oracle_utxo = &kupo_provider
+            .fetch_address_utxos(
+                "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
+                Some(&app_oracle_nft),
+            )
             .await
             .unwrap()[0];
 
         let deposit_intent_blueprint =
             deposit_intent_spend_blueprint(&oracle_nft, 1000000).unwrap();
-        let intent_utxos = provider
+        let intent_utxos = kupo_provider
             .fetch_address_utxos(
                 &deposit_intent_blueprint.address,
                 Some(&deposit_intent_blueprint.hash),
             )
             .await
             .unwrap();
-
-        let app_owner_wallet = get_operator_wallet()
-            .with_fetcher(provider.clone())
-            .with_submitter(provider.clone());
 
         let operator_address = app_owner_wallet
             .get_change_address(AddressType::Payment)
@@ -321,10 +336,16 @@ mod tests {
         let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
         let account_info = AccountInfo {
-            account_type: "UserSpotAccount".to_string(),
-            account_id: "test_account_id".to_string(),
-            master_key: ("master_key".to_string(), true),
-            operation_key: ("operation_key".to_string(), true),
+            account_type: "spot_account".to_string(),
+            account_id: "062cba14-4f94-42fd-91ac-747a55851660".to_string(),
+            master_key: (
+                "04845038ee499ee8bc0afe56f688f27b2dd76f230d3698a9afcc1b66".to_string(),
+                false,
+            ),
+            operation_key: (
+                "de47016def89cec1e8ff349d044802bce9a845009bd84569db69e585".to_string(),
+                false,
+            ),
         };
 
         let tx_hex = process_vault_deposit(

@@ -44,10 +44,16 @@ pub async fn process_vault_withdrawal(
                 .map
                 .iter()
                 .map(|(k, v)| {
-                    (
-                        format!("{}{}", k.clone().0.bytes, k.clone().1.bytes),
-                        v.clone().int,
-                    )
+                    let policy_id = k.clone().0.bytes;
+                    let asset_name = k.clone().1.bytes;
+                    if policy_id.is_empty() {
+                        (
+                            format!("{}{}", preprod::unit::LOVELACE, asset_name),
+                            v.clone().int,
+                        )
+                    } else {
+                        (format!("{}{}", policy_id, asset_name), v.clone().int)
+                    }
                 })
                 .collect::<HashMap<String, i128>>(),
             ref_utxo,
@@ -216,6 +222,7 @@ pub async fn process_vault_withdrawal(
     // add vault utxos
     for vault in vault_utxos {
         tx_builder
+            .spending_plutus_script_v3()
             .tx_in(
                 &vault.input.tx_hash,
                 vault.input.output_index,
@@ -240,10 +247,11 @@ pub async fn process_vault_withdrawal(
                 &intent_utxo.output.address,
             )
             .tx_in_redeemer_value(&WRedeemer {
-                data: WData::JSON("".to_string()),
+                data: WData::JSON(ByteString::new("").to_json_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&withdrawl_intent_blueprint.cbor);
+            .tx_in_script(&withdrawl_intent_blueprint.cbor)
+            .tx_in_inline_datum_present();
         // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
     }
 
@@ -296,7 +304,10 @@ mod tests {
         let message = "";
         let signatures = vec!["", "", "", ""];
         let app_oracle_utxo = &provider
-            .fetch_address_utxos("todo: app oracle address", Some(&app_oracle_nft))
+            .fetch_address_utxos(
+                "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
+                Some(&app_oracle_nft),
+            )
             .await
             .unwrap()[0];
 

@@ -47,17 +47,20 @@ impl SignedMessage {
 
         let mut prices_map = Map::new(&[]);
         for entry in prices_array {
-            let policy_id_byte = entry["k"][0]["bytes"].as_str().ok_or_else(|| {
+            let policy_id_byte = entry["k"]["list"][0]["bytes"].as_str().ok_or_else(|| {
                 WError::new("Invalid policy ID in prices map", "InvalidDataError")
             })?;
-            let asset_name_byte = entry["k"][1]["bytes"].as_str().ok_or_else(|| {
+            let asset_name_byte = entry["k"]["list"][1]["bytes"].as_str().ok_or_else(|| {
                 WError::new("Invalid asset name in prices map", "InvalidDataError")
             })?;
             let value_int = entry["v"]["int"].as_i64().ok_or_else(|| {
                 WError::new("Invalid price value in prices map", "InvalidDataError")
             })?;
 
-            let key = (ByteString::new(policy_id_byte),ByteString::new(asset_name_byte));
+            let key = (
+                ByteString::new(policy_id_byte),
+                ByteString::new(asset_name_byte),
+            );
             let value = Int::new(value_int as i128);
 
             prices_map.insert(key, value);
@@ -122,32 +125,44 @@ use whisky::{
 use crate::config::AppConfig;
 use crate::scripts::plutus_loader::get_compiled_code_by_index;
 
-pub fn deposit_intent_mint_blueprint(oracle_nft: &str, lp_decimal: i128) -> Result<MintingBlueprint, whisky::WError> {
+pub fn deposit_intent_mint_blueprint(
+    oracle_nft: &str,
+    lp_decimal: i128,
+) -> Result<MintingBlueprint, whisky::WError> {
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
     let compiled_code = get_compiled_code_by_index(1)?; // Using index 1 for deposit intent mint
     blueprint
-    .param_script(
-        &compiled_code,
-        &[&byte_string(oracle_nft).to_string(), &integer(lp_decimal).to_string()],
-        BuilderDataType::JSON,
-    )
-    .unwrap();
+        .param_script(
+            &compiled_code,
+            &[
+                &byte_string(oracle_nft).to_string(),
+                &integer(lp_decimal).to_string(),
+            ],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
     Ok(blueprint)
 }
 
-pub fn deposit_intent_spend_blueprint(oracle_nft: &str, lp_decimal: i128) -> Result<SpendingBlueprint, whisky::WError> {
+pub fn deposit_intent_spend_blueprint(
+    oracle_nft: &str,
+    lp_decimal: i128,
+) -> Result<SpendingBlueprint, whisky::WError> {
     let AppConfig { network_id, .. } = AppConfig::new();
 
     let mut blueprint =
         SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
     let compiled_code = get_compiled_code_by_index(0)?; // Using index 0 for deposit intent spend
     blueprint
-    .param_script(
-        &compiled_code,
-        &[&byte_string(oracle_nft).to_string(), &integer(lp_decimal).to_string()],
-        BuilderDataType::JSON,
-    )
-    .unwrap();
+        .param_script(
+            &compiled_code,
+            &[
+                &byte_string(oracle_nft).to_string(),
+                &integer(lp_decimal).to_string(),
+            ],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
     Ok(blueprint)
 }
 
@@ -161,7 +176,11 @@ mod tests {
     fn test_deposit_intent_mint_blueprint() {
         dotenv().ok();
 
-        let blueprint = deposit_intent_mint_blueprint("c9e99dda2af8e97d8ccde3254fc1c16926fbbf6508929dad6518d1b83f389e92", 1000000).unwrap();
+        let blueprint = deposit_intent_mint_blueprint(
+            "c9e99dda2af8e97d8ccde3254fc1c16926fbbf6508929dad6518d1b83f389e92",
+            1000000,
+        )
+        .unwrap();
         println!("blueprint: {:?}", blueprint);
         assert_eq!(blueprint.hash, "TODO");
         assert_eq!(blueprint.cbor, "TODO");

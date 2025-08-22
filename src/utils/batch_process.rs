@@ -176,11 +176,9 @@ pub fn process_deposit_intent(
                 WError::new("Failed to decode Plutus datum to JSON", "InvalidDatumError")
             })?;
 
-            let address_value = datum_json["fields"][0]
-                .as_str()
-                .ok_or_else(|| WError::new("Missing address in JSON", "InvalidDataError"))?;
+            let address_value = datum_json["fields"][0].to_string();
             let address = parse_plutus_address_obj_to_bech32(
-                address_value,
+                &address_value,
                 network_id.parse::<u8>().unwrap(),
             );
 
@@ -194,11 +192,30 @@ pub fn process_deposit_intent(
                 let policy_id = asset_pair["k"]["bytes"]
                     .as_str()
                     .ok_or_else(|| WError::new("Missing policy_id in asset", "InvalidDataError"))?;
-                let quantity = asset_pair["v"]["int"]
-                    .as_i64()
-                    .ok_or_else(|| WError::new("Missing quantity in asset", "InvalidDataError"))?;
 
-                assets.push(Asset::new_from_str(policy_id, &quantity.to_string()));
+                let asset = asset_pair["v"]["map"].as_array().ok_or_else(|| {
+                    WError::new("Missing asset array in JSON", "InvalidDataError")
+                })?;
+
+                for asset_entry in asset {
+                    let asset_name = asset_entry["k"]["bytes"].as_str().ok_or_else(|| {
+                        WError::new("Missing asset_name in asset", "InvalidDataError")
+                    })?;
+                    let quantity = asset_entry["v"]["int"].as_i64().ok_or_else(|| {
+                        WError::new("Missing quantity in asset", "InvalidDataError")
+                    })?;
+
+                    let unit = if asset_name.is_empty() {
+                        if policy_id.is_empty() {
+                            preprod::unit::LOVELACE.to_string()
+                        } else {
+                            policy_id.to_string()
+                        }
+                    } else {
+                        format!("{}{}", policy_id, asset_name)
+                    };
+                    assets.push(Asset::new_from_str(&unit, &quantity.to_string()));
+                }
             }
 
             let usd_value = convert_value_to_usd(&assets, prices)?;
@@ -324,11 +341,9 @@ pub fn process_withdrawal_intent(
                 WError::new("Failed to decode Plutus datum to JSON", "InvalidDatumError")
             })?;
 
-            let address_value = datum_json["fields"][0]
-                .as_str()
-                .ok_or_else(|| WError::new("Missing address in JSON", "InvalidDataError"))?;
+            let address_value = datum_json["fields"][0].to_string();
             let address = parse_plutus_address_obj_to_bech32(
-                address_value,
+                &address_value,
                 network_id.parse::<u8>().unwrap(),
             );
 
