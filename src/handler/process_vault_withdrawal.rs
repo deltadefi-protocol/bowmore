@@ -7,7 +7,8 @@ use whisky::{
 
 use crate::{
     config::AppConfig,
-    mainnet, preprod,
+    constant::mainnet,
+    constant::preprod,
     scripts::{
         deposit_intent::{IntentRedeemer, SignedMessage},
         lp_token::lp_token_mint_blueprint,

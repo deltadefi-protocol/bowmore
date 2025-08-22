@@ -6,7 +6,7 @@ use whisky::{
 };
 
 use crate::{
-    preprod,
+    constant::preprod,
     scripts::{
         app_deposit_request::{
             app_deposit_request_mint_blueprint, app_deposit_request_spend_blueprint,
@@ -162,10 +162,6 @@ pub async fn process_vault_deposit(
         vault_cost.int + total_usd_value_change,
     );
 
-    println!(
-        "total_deposit_asset: {:?}, total_lp_minted: {}, total_usd_value_change: {}, operator_fee: {}",
-        total_deposit_asset, total_lp_minted, total_usd_value_change, operator_fee
-    );
     // Create the app deposit request datum
     let app_deposit_request_datum = AppDepositRequestDatum::new(
         &total_deposit_asset,
@@ -180,6 +176,9 @@ pub async fn process_vault_deposit(
             account_info.operation_key.1,
         ),
     );
+
+    let mut vault_oracle_output_amount = vault_oracle_utxo.output.amount.clone();
+    vault_oracle_output_amount[0] = Asset::new_from_str("lovelace", "3000000");
 
     // Build the transaction
     let mut tx_builder = TxBuilder::new_core();
@@ -238,10 +237,7 @@ pub async fn process_vault_deposit(
         .read_only_tx_in_reference(&app_oracle_utxo.tx_hash, app_oracle_utxo.output_index, None)
         .tx_in_inline_datum_present()
         // vault oracle output
-        .tx_out(
-            &vault_oracle_blueprint.address,
-            &vault_oracle_utxo.output.amount,
-        )
+        .tx_out(&vault_oracle_blueprint.address, &vault_oracle_output_amount)
         .tx_out_inline_datum_value(&WData::JSON(updated_vault_oracle_datum.to_json_string())); // JSON string datum
 
     // add intent utxos
