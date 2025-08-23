@@ -1,7 +1,8 @@
 use whisky::{data::PlutusDataJson, *};
 
-use crate::scripts::deposit_intent::{
-    deposit_intent_spend_blueprint, DepositIntentDatum, IntentRedeemer,
+use crate::{
+    constant::tx_script,
+    scripts::deposit_intent::{deposit_intent_spend_blueprint, DepositIntentDatum, IntentRedeemer},
 };
 
 pub async fn vault_deposit(
@@ -11,6 +12,7 @@ pub async fn vault_deposit(
     inputs: &[UTxO],
     collateral: &UTxO,
     lp_decimal: i128,
+    ref_utxo: &UTxO,
 ) -> Result<String, WError> {
     let deposit_intent_blueprint = deposit_intent_spend_blueprint(oracle_nft, lp_decimal).unwrap();
 
@@ -24,8 +26,12 @@ pub async fn vault_deposit(
     tx_builder
         .mint_plutus_script_v3()
         .mint(1, &deposit_intent_blueprint.hash, "")
-        .minting_script(&deposit_intent_blueprint.cbor)
-        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        .mint_tx_in_reference(
+            tx_script::deposit_intent::TX_HASH,
+            tx_script::deposit_intent::TX_INDEX,
+            &deposit_intent_blueprint.hash,
+            deposit_intent_blueprint.cbor.len() / 2,
+        ) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(IntentRedeemer::MintIntent.to_json_string()),
             ex_units: Budget::default(),
@@ -43,6 +49,7 @@ pub async fn vault_deposit(
             &collateral.output.address,
         )
         .select_utxos_from(inputs, 5000000)
+        .input_for_evaluation(ref_utxo)
         .complete(None)
         .await?;
 
@@ -69,6 +76,11 @@ mod tests {
             .with_fetcher(kupo_provider.clone())
             .with_submitter(ogmios_provider.clone());
 
+        let ref_utxo = &kupo_provider
+            .fetch_utxos(tx_script::deposit_intent::TX_HASH, Some(0))
+            .await
+            .unwrap()[0];
+
         let address = app_owner_wallet
             .get_change_address(AddressType::Payment)
             .unwrap()
@@ -86,6 +98,7 @@ mod tests {
             &utxos,
             &collateral,
             1000000,
+            ref_utxo,
         )
         .await
         .unwrap();
