@@ -6,7 +6,7 @@ use whisky::{
 };
 
 use crate::{
-    config::AppConfig, constant::mainnet, constant::preprod, utils::blockfrost::get_utxo_by_address,
+    config::AppConfig, constant::mainnet, constant::preprod, utils::kupo::get_utxo_by_address,
 };
 
 pub fn parse_plutus_address_obj_to_bech32(plutus_data_address_obj: &str, network_id: u8) -> String {
@@ -268,7 +268,7 @@ pub fn process_deposit_intents(
     let mut total_usd_value: i128 = 0;
     let mut total_lp_amount: i128 = 0;
     let mut indices = Vec::new();
-    let mut index: i128 = 2;
+    let mut index: i128 = 1; // todo: change back to 2 when have app deposit request
 
     for utxo in utxos {
         let (output, assets, usd_value, lp_amount) = process_deposit_intent(
@@ -312,8 +312,38 @@ pub fn cal_lovelace_amount(
     prices: &HashMap<String, i128>,
     usd_value: i128,
 ) -> Result<i128, WError> {
-    let lovelace_amount = usd_value * prices.get(preprod::unit::LOVELACE).unwrap();
+    let lovelace_amount = usd_value / prices.get(preprod::unit::LOVELACE).unwrap();
     Ok(lovelace_amount)
+}
+
+pub fn create_withdrawal_output_amount(
+    prices: &HashMap<String, i128>,
+    usd_value: i128,
+    ratio: i128,
+) -> Result<Vec<Asset>, WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
+    let (lovelace_unit, usdm_unit) = if network_id.parse::<u8>().unwrap() == 0 {
+        (preprod::unit::LOVELACE, preprod::unit::USDM)
+    } else {
+        (mainnet::unit::LOVELACE, mainnet::unit::USDM)
+    };
+
+    let usdm_amount = (usd_value * ratio) / 100;
+    let lovelace_amount = cal_lovelace_amount(prices, usd_value * (100 - ratio) / 100)?;
+
+    let mut output_amount = Vec::new();
+
+    if usdm_amount > 0 {
+        output_amount.push(Asset::new_from_str(usdm_unit, &usdm_amount.to_string()));
+    }
+    if lovelace_amount > 0 {
+        output_amount.push(Asset::new_from_str(
+            lovelace_unit,
+            &lovelace_amount.to_string(),
+        ));
+    }
+    Ok(output_amount)
 }
 
 pub fn process_withdrawal_intent(
@@ -324,15 +354,10 @@ pub fn process_withdrawal_intent(
     operator_fee: i128,
     ratio: i128, // Ratio of USDM in &
 ) -> Result<(Output, Vec<Asset>, i128, i128), WError> {
-    let AppConfig { network_id, .. } = AppConfig::new();
-
-    let (lovelace_unit, usdm_unit) = if network_id.parse::<i128>().unwrap() == 0 {
-        (preprod::unit::LOVELACE, preprod::unit::USDM)
-    } else {
-        (mainnet::unit::LOVELACE, mainnet::unit::USDM)
-    };
     match &utxo.output.plutus_data {
         Some(plutus_data) => {
+            let AppConfig { network_id, .. } = AppConfig::new();
+
             let datum_json = whisky::csl::decode_plutus_datum_to_json_value(
                 &whisky::csl::PlutusData::from_hex(&plutus_data).map_err(|_e| {
                     WError::new("Failed to decode Plutus data", "InvalidDatumError")
@@ -357,31 +382,16 @@ pub fn process_withdrawal_intent(
             let usd_value =
                 convert_lp_to_usd(lp_amount.into(), total_lp, vault_balance, operator_fee)?;
 
+            let output_amount = create_withdrawal_output_amount(prices, usd_value, ratio)?;
+
             let output = Output {
                 address: address.to_string(),
-                amount: vec![
-                    Asset::new_from_str(usdm_unit, &(usd_value * ratio / 100).to_string()),
-                    Asset::new_from_str(
-                        lovelace_unit,
-                        &cal_lovelace_amount(prices, usd_value).unwrap().to_string(),
-                    ),
-                ],
+                amount: output_amount.clone(),
                 datum: None,
                 reference_script: None,
             };
 
-            Ok((
-                output,
-                vec![
-                    Asset::new_from_str(usdm_unit, &(usd_value * ratio / 100).to_string()),
-                    Asset::new_from_str(
-                        lovelace_unit,
-                        &cal_lovelace_amount(prices, usd_value).unwrap().to_string(),
-                    ),
-                ],
-                usd_value,
-                lp_amount.into(),
-            ))
+            Ok((output, output_amount, usd_value, lp_amount.into()))
         }
         None => Err(WError::new(
             "UTxO does not contain Plutus data for WithdrawalIntentDatum",

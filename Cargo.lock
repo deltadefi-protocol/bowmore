@@ -348,6 +348,7 @@ dependencies = [
  "async-trait",
  "bowmore-proto",
  "dotenv",
+ "futures",
  "prost",
  "serde_json",
  "tokio",

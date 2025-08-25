@@ -70,14 +70,28 @@ pub async fn setup_vault_oracle(
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::wallet::get_operator_wallet;
-
     use super::*;
+    use crate::utils::wallet::get_operator_wallet;
     use dotenv::dotenv;
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
-    #[tokio::test]
+    #[test]
+    fn my_async_task() {
+        let handle = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(test_setup_vault_oracle_tx());
+            })
+            .unwrap();
+
+        handle.join().unwrap();
+    }
+
     async fn test_setup_vault_oracle_tx() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -99,7 +113,6 @@ mod tests {
             .unwrap()
             .to_string();
         println!("address: {:?}", address);
-
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
         let one_shot = utxos[0].clone();
         println!("one_shot: {:?}", one_shot);

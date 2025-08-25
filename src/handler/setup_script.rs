@@ -5,7 +5,6 @@ use crate::constant::tx_script;
 pub async fn setup_tx_script(
     my_address: &str,
     inputs: &[UTxO],
-    collateral: &UTxO,
     script_cbor: &str,
 ) -> Result<String, WError> {
     let output_amount = vec![Asset::new_from_str("lovelace", "50000000")];
@@ -14,12 +13,6 @@ pub async fn setup_tx_script(
         .tx_out(tx_script::ADDRESS, &output_amount)
         .tx_out_reference_script(&script_cbor, Some(LanguageVersion::V3))
         .change_address(my_address)
-        .tx_in_collateral(
-            &collateral.input.tx_hash,
-            collateral.input.output_index,
-            &collateral.output.amount,
-            &collateral.output.address,
-        )
         .select_utxos_from(inputs, 5000000)
         .complete(None)
         .await?;
@@ -43,7 +36,29 @@ mod tests {
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
-    #[tokio::test]
+    #[test]
+    fn my_async_task() {
+        let handle = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(test_tx_out_all_scripts());
+            })
+            .unwrap();
+
+        handle.join().unwrap();
+    }
+    async fn test_tx_out_all_scripts() {
+        test_tx_out_vault_script().await;
+        test_tx_out_vault_oracle_script().await;
+        test_tx_out_deposit_intent_script().await;
+        test_tx_out_withdrawal_intent_script().await;
+        test_tx_out_lp_token_script().await;
+    }
+
     async fn test_tx_out_vault_script() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -62,12 +77,9 @@ mod tests {
             .to_string();
 
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
-        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
-        println!("utxos: {:?}", utxos);
-        let tx_hex = setup_tx_script(&address, &utxos, &collateral, &vault_spend_blueprint.cbor)
+        let tx_hex = setup_tx_script(&address, &utxos, &vault_spend_blueprint.cbor)
             .await
             .unwrap();
-        print!("vault result: {:?}", tx_hex);
 
         let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
         let result = app_owner_wallet.submit_tx(&signed_tx).await;
@@ -79,7 +91,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
     async fn test_tx_out_vault_oracle_script() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -98,9 +109,8 @@ mod tests {
             .to_string();
 
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
-        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
-        let tx_hex = setup_tx_script(&address, &utxos, &collateral, &vault_oracle_blueprint.cbor)
+        let tx_hex = setup_tx_script(&address, &utxos, &vault_oracle_blueprint.cbor)
             .await
             .unwrap();
 
@@ -114,7 +124,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
     async fn test_tx_out_deposit_intent_script() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -133,16 +142,10 @@ mod tests {
             .to_string();
 
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
-        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
-        let tx_hex = setup_tx_script(
-            &address,
-            &utxos,
-            &collateral,
-            &deposit_intent_blueprint.cbor,
-        )
-        .await
-        .unwrap();
+        let tx_hex = setup_tx_script(&address, &utxos, &deposit_intent_blueprint.cbor)
+            .await
+            .unwrap();
 
         let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
         let result = app_owner_wallet.submit_tx(&signed_tx).await;
@@ -154,7 +157,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
     async fn test_tx_out_withdrawal_intent_script() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -173,16 +175,10 @@ mod tests {
             .to_string();
 
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
-        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
-        let tx_hex = setup_tx_script(
-            &address,
-            &utxos,
-            &collateral,
-            &withdrawal_intent_blueprint.cbor,
-        )
-        .await
-        .unwrap();
+        let tx_hex = setup_tx_script(&address, &utxos, &withdrawal_intent_blueprint.cbor)
+            .await
+            .unwrap();
 
         let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
         let result = app_owner_wallet.submit_tx(&signed_tx).await;
@@ -194,7 +190,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
     async fn test_tx_out_lp_token_script() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -213,9 +208,8 @@ mod tests {
             .to_string();
 
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
-        let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
-        let tx_hex = setup_tx_script(&address, &utxos, &collateral, &lp_token_blueprint.cbor)
+        let tx_hex = setup_tx_script(&address, &utxos, &lp_token_blueprint.cbor)
             .await
             .unwrap();
 

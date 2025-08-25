@@ -1,8 +1,7 @@
 use whisky::{data::PlutusDataJson, *};
 
-use crate::{
-    constant::tx_script,
-    scripts::deposit_intent::{deposit_intent_spend_blueprint, DepositIntentDatum, IntentRedeemer},
+use crate::scripts::deposit_intent::{
+    deposit_intent_spend_blueprint, DepositIntentDatum, IntentRedeemer,
 };
 
 pub async fn vault_deposit(
@@ -12,7 +11,7 @@ pub async fn vault_deposit(
     inputs: &[UTxO],
     collateral: &UTxO,
     lp_decimal: i128,
-    ref_utxo: &UTxO,
+    mint_ref_utxo: &UTxO,
 ) -> Result<String, WError> {
     let deposit_intent_blueprint = deposit_intent_spend_blueprint(oracle_nft, lp_decimal).unwrap();
 
@@ -27,8 +26,8 @@ pub async fn vault_deposit(
         .mint_plutus_script_v3()
         .mint(1, &deposit_intent_blueprint.hash, "")
         .mint_tx_in_reference(
-            tx_script::deposit_intent::TX_HASH,
-            tx_script::deposit_intent::TX_INDEX,
+            mint_ref_utxo.input.tx_hash.as_str(),
+            mint_ref_utxo.input.output_index,
             &deposit_intent_blueprint.hash,
             deposit_intent_blueprint.cbor.len() / 2,
         ) // For reference scripts
@@ -49,7 +48,7 @@ pub async fn vault_deposit(
             &collateral.output.address,
         )
         .select_utxos_from(inputs, 5000000)
-        .input_for_evaluation(ref_utxo)
+        .input_for_evaluation(mint_ref_utxo)
         .complete(None)
         .await?;
 
@@ -58,14 +57,28 @@ pub async fn vault_deposit(
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::wallet::get_operator_wallet;
+    use crate::{constant::tx_script, utils::wallet::get_operator_wallet};
 
     use super::*;
     use dotenv::dotenv;
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
-    #[tokio::test]
+    #[test]
+    fn my_async_task() {
+        let handle = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(test_vault_deposit());
+            })
+            .unwrap();
+
+        handle.join().unwrap();
+    }
     async fn test_vault_deposit() {
         dotenv().ok();
 
@@ -76,8 +89,11 @@ mod tests {
             .with_fetcher(kupo_provider.clone())
             .with_submitter(ogmios_provider.clone());
 
-        let ref_utxo = &kupo_provider
-            .fetch_utxos(tx_script::deposit_intent::TX_HASH, Some(0))
+        let mint_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::deposit_intent::TX_HASH,
+                Some(tx_script::deposit_intent::OUTPUT_INDEX),
+            )
             .await
             .unwrap()[0];
 
@@ -98,7 +114,7 @@ mod tests {
             &utxos,
             &collateral,
             1000000,
-            ref_utxo,
+            mint_ref_utxo,
         )
         .await
         .unwrap();

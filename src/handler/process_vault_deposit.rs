@@ -35,12 +35,15 @@ pub async fn process_vault_deposit(
     message: &str,
     signatures: Vec<&str>,
     account_info: &AccountInfo,
-    app_oracle_utxo: &UtxoInput,
+    app_oracle_utxo: &UTxO,
     intent_utxos: &[UTxO],
     operator_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
     lp_decimal: i128,
+    intent_ref_utxo: &UTxO,
+    lp_mint_ref_utxo: &UTxO,
+    vault_oracle_spend_ref_utxo: &UTxO,
 ) -> Result<String, WError> {
     // Decode the message to extract vault balance, prices, and UTXO reference
     let decoded_message = SignedMessage::from_plutus_data(message)?;
@@ -73,7 +76,7 @@ pub async fn process_vault_deposit(
     let vault_oracle_utxo =
         get_utxo(&vault_oracle_tx_hash, vault_oracle_output_index as u32).await?;
     let vault_oracle_input_datum: VaultOracleDatum =
-        VaultOracleDatum::from_plutus_data(&vault_oracle_utxo.output.plutus_data.unwrap())?;
+        VaultOracleDatum::from_plutus_data(vault_oracle_utxo.output.plutus_data.as_ref().unwrap())?;
 
     let (
         _app_oracle,
@@ -186,35 +189,43 @@ pub async fn process_vault_deposit(
         // burn intents
         .mint_plutus_script_v3()
         .mint(
-            intent_utxos.len() as i128,
+            -(intent_utxos.len() as i128),
             &deposit_intent_blueprint.hash,
             "",
         )
-        .minting_script(&deposit_intent_blueprint.cbor)
-        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        .mint_tx_in_reference(
+            intent_ref_utxo.input.tx_hash.as_str(),
+            intent_ref_utxo.input.output_index,
+            &deposit_intent_blueprint.hash,
+            deposit_intent_blueprint.cbor.len() / 2,
+        ) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(deposit_intent_redeemer.to_json_string()),
             ex_units: Budget::default(),
         })
         // mint app deposit request
-        .mint_plutus_script_v3()
-        .mint(1, &app_deposit_request_mint_blueprint.hash, "")
-        .minting_script(&app_deposit_request_mint_blueprint.cbor)
-        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
-        .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(MintPolarity::RMint.to_json_string()),
-            ex_units: Budget::default(),
-        })
-        .tx_out(
-            &app_deposit_request_spend_blueprint.address,
-            &app_deposit_request_output_amount,
-        )
-        .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_json_string()))
+        // .mint_plutus_script_v3()
+        // .mint(1, &app_deposit_request_mint_blueprint.hash, "")
+        // .minting_script(&app_deposit_request_mint_blueprint.cbor)
+        // // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        // .mint_redeemer_value(&WRedeemer {
+        //     data: WData::JSON(MintPolarity::RMint.to_json_string()),
+        //     ex_units: Budget::default(),
+        // })
+        // .tx_out(
+        //     &app_deposit_request_spend_blueprint.address,
+        //     &app_deposit_request_output_amount,
+        // )
+        // .tx_out_inline_datum_value(&WData::JSON(app_deposit_request_datum.to_json_string()))
         //mint lp token
         .mint_plutus_script_v3()
         .mint(total_lp_minted, &lp_token_mint_blueprint.hash, "")
-        .minting_script(&lp_token_mint_blueprint.cbor)
-        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        .mint_tx_in_reference(
+            lp_mint_ref_utxo.input.tx_hash.as_str(),
+            lp_mint_ref_utxo.input.output_index,
+            &lp_token_mint_blueprint.hash,
+            lp_token_mint_blueprint.cbor.len() / 2,
+        ) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(ProcessRedeemer::ProcessDeposit.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
@@ -232,16 +243,29 @@ pub async fn process_vault_deposit(
             data: WData::JSON(ProcessRedeemer::ProcessDeposit.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
-        .tx_in_script(&vault_oracle_blueprint.cbor)
+        .spending_tx_in_reference(
+            vault_oracle_spend_ref_utxo.input.tx_hash.as_str(),
+            vault_oracle_spend_ref_utxo.input.output_index,
+            &vault_oracle_blueprint.hash,
+            vault_oracle_blueprint.cbor.len() / 2,
+        )
+        .input_for_evaluation(&vault_oracle_utxo)
+        // For reference scripts
         // app oracle ref input
-        .read_only_tx_in_reference(&app_oracle_utxo.tx_hash, app_oracle_utxo.output_index, None)
-        .tx_in_inline_datum_present()
+        // .read_only_tx_in_reference(
+        //     &app_oracle_utxo.input.tx_hash,
+        //     app_oracle_utxo.input.output_index,
+        //     None,
+        // )
+        // .tx_in_inline_datum_present()
+        // .input_for_evaluation(app_oracle_utxo)
         // vault oracle output
         .tx_out(&vault_oracle_blueprint.address, &vault_oracle_output_amount)
         .tx_out_inline_datum_value(&WData::JSON(updated_vault_oracle_datum.to_json_string())); // JSON string datum
 
     // add intent utxos
     for intent_utxo in intent_utxos {
+        println!("intent_utxo: {:?}", intent_utxo);
         tx_builder
             .spending_plutus_script_v3()
             .tx_in(
@@ -254,9 +278,14 @@ pub async fn process_vault_deposit(
                 data: WData::JSON(ByteString::new("").to_json_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&deposit_intent_blueprint.cbor)
-            .tx_in_inline_datum_present();
-        // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+            .spending_tx_in_reference(
+                intent_ref_utxo.input.tx_hash.as_str(),
+                intent_ref_utxo.input.output_index,
+                &deposit_intent_blueprint.hash,
+                deposit_intent_blueprint.cbor.len() / 2,
+            ) // For reference scripts
+            .tx_in_inline_datum_present()
+            .input_for_evaluation(intent_utxo);
     }
 
     // add intent outputs
@@ -273,6 +302,9 @@ pub async fn process_vault_deposit(
             &collateral.output.address,
         )
         .select_utxos_from(inputs, 5000000)
+        .input_for_evaluation(intent_ref_utxo)
+        .input_for_evaluation(lp_mint_ref_utxo)
+        .input_for_evaluation(vault_oracle_spend_ref_utxo)
         .complete(None)
         .await?;
 
@@ -282,7 +314,8 @@ pub async fn process_vault_deposit(
 #[cfg(test)]
 mod tests {
     use crate::{
-        scripts::deposit_intent::deposit_intent_spend_blueprint, utils::wallet::get_operator_wallet,
+        constant::tx_script, scripts::deposit_intent::deposit_intent_spend_blueprint,
+        utils::wallet::get_operator_wallet,
     };
 
     use super::*;
@@ -290,7 +323,22 @@ mod tests {
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
-    #[tokio::test]
+    #[test]
+    fn my_async_task() {
+        let handle = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(test_process_vault_deposit());
+            })
+            .unwrap();
+
+        handle.join().unwrap();
+    }
+
     async fn test_process_vault_deposit() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -302,15 +350,19 @@ mod tests {
         let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
         let oracle_nft = var("ORACLE_NFT").unwrap();
 
-        let message = "d8799f00a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f5820b64b0f674d6ad612fc24070b3a5c022d7005aa2b3a8384bcf707eb1134016de700ffff";
-        let signatures = vec!["d86ed508ea0d5fad344cd443f8f56662cfe3969fc0cd0849534aa0a20012fe087af29819162942af434d5210e444e94344c7597ad670d46703a3b5f6001f0a0f", "dba23aba015d4d7e8548247e45802392240881102d6b3ad1c99889ea8d4d9411203529baa3be7b66d5b6cb5a3a8a2436bd567b889b055551916914b9285e870b", "66482eef848bf1e1b10dbc3312c66e947b8b0ea7ec4855454cfa355efc231f58762c977e12ac67a8fc58d914085fa83290b40fd1fe9909f4e7e5d5aaa2d7f302", "cda27b436f09bc9df2e3871c863421da816cb4033997f228609a6e36cafc3a290ffec6ecb8d82e6315283eeec7a7f0c9df040a239d70256e6638830e6e31e608"];
-        let app_oracle_utxo = &kupo_provider
-            .fetch_address_utxos(
-                "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
-                Some(&app_oracle_nft),
-            )
-            .await
-            .unwrap()[0];
+        let message = "d8799f00a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f5820e51f05cf122b9b80695a634db21a79a9dd540e1eeaac18f0b33838915095281600ffff";
+        let sig_1 = "ce07d8fc58e5bcfa3029e818fb58a331bfa34d270b70d7cdd45e1efd22af92f74d329d7e086535c8097c687695ec6f088fe92ff30901c650123088cad5c85800";
+        let sig_2 = "ddb4d23a590ea4ef8e87960e7d50c1b506709209f020b7371fe1301bb5cb256921a710b3c49f7596601c676ad608525a04ee366ef8e290068537e30b7863b409";
+        let sig_3 = "eb4b434f966e3283026722e4a516a7869fa38ebee852d7148ba41de0316c7daf03936e0a41733932ca7becde6564d1ff482a7fe85fd9a5e71546461d8263490a";
+        let sig_4 = "f2ae03b198c7e43680acedecfd5bd92f3a8b5a55e955ab886b67c2d4017b229dbaae5152caee482e9a1479cbb7300eddde9e1664fe721b2e3da28a4f088bc505";
+        let signatures = vec![sig_1, sig_2, sig_3, sig_4];
+        // let app_oracle_utxo = &kupo_provider
+        //     .fetch_address_utxos(
+        //         "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
+        //         Some(&app_oracle_nft),
+        //     )
+        //     .await
+        //     .unwrap()[0];
 
         let deposit_intent_blueprint =
             deposit_intent_spend_blueprint(&oracle_nft, 1000000).unwrap();
@@ -344,17 +396,42 @@ mod tests {
             ),
         };
 
+        let intent_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::deposit_intent::TX_HASH,
+                Some(tx_script::deposit_intent::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+        let lp_mint_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::lp_token::TX_HASH,
+                Some(tx_script::lp_token::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+        let vault_oracle_spend_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::vault_oracle::TX_HASH,
+                Some(tx_script::vault_oracle::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+
         let tx_hex = process_vault_deposit(
             &oracle_nft,
             message,
             signatures,
             &account_info,
-            &app_oracle_utxo.input,
+            &vault_oracle_spend_ref_utxo, //todo: app_oracle_utxo
             &intent_utxos,
             &operator_address,
             &utxos,
             &collateral,
             1000000,
+            &intent_ref_utxo,
+            &lp_mint_ref_utxo,
+            &vault_oracle_spend_ref_utxo,
         )
         .await
         .unwrap();

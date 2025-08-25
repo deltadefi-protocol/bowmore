@@ -7,8 +7,7 @@ use whisky::{
 
 use crate::{
     config::AppConfig,
-    constant::mainnet,
-    constant::preprod,
+    constant::{mainnet, preprod, tx_script::vault},
     scripts::{
         deposit_intent::{IntentRedeemer, SignedMessage},
         lp_token::lp_token_mint_blueprint,
@@ -18,10 +17,10 @@ use crate::{
     },
     utils::{
         batch_process::{
-            cal_lovelace_amount, cal_operator_fee, get_utxos_for_withdrawal,
-            process_withdrawal_intents,
+            cal_lovelace_amount, cal_operator_fee, create_withdrawal_output_amount,
+            get_utxos_for_withdrawal, process_withdrawal_intents,
         },
-        blockfrost::get_utxo,
+        kupo::get_utxo,
     },
 };
 
@@ -30,15 +29,19 @@ pub async fn process_vault_withdrawal(
     message: &str,
     signatures: Vec<&str>,
     ratio: i128,
-    app_oracle_utxo: &UtxoInput,
+    app_oracle_utxo: &UTxO,
     intent_utxos: &[UTxO],
     operator_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
+    intent_ref_utxo: &UTxO,
+    lp_mint_ref_utxo: &UTxO,
+    vault_oracle_spend_ref_utxo: &UTxO,
+    vault_ref_utxo: &UTxO,
 ) -> Result<String, WError> {
     // Decode the message to extract vault balance, prices, and UTXO reference
     let decoded_message = SignedMessage::from_plutus_data(message)?;
-    let (vault_balance, prices_map, utxo_ref) = match &decoded_message {
+    let (mut vault_balance, prices_map, utxo_ref) = match &decoded_message {
         SignedMessage::Message(balance, prices, ref_utxo) => (
             balance.clone().int,
             prices
@@ -60,6 +63,7 @@ pub async fn process_vault_withdrawal(
             ref_utxo,
         ),
     };
+    vault_balance = 18000000;
     let vault_oracle_tx_hash = (*utxo_ref.clone().fields).0.bytes;
     let vault_oracle_output_index = (*utxo_ref.clone().fields).1.int;
 
@@ -67,7 +71,7 @@ pub async fn process_vault_withdrawal(
     let vault_oracle_utxo =
         get_utxo(&vault_oracle_tx_hash, vault_oracle_output_index as u32).await?;
     let vault_oracle_input_datum: VaultOracleDatum =
-        VaultOracleDatum::from_plutus_data(&vault_oracle_utxo.output.plutus_data.unwrap())?;
+        VaultOracleDatum::from_plutus_data(vault_oracle_utxo.output.plutus_data.as_ref().unwrap())?;
 
     let (
         _app_oracle,
@@ -147,7 +151,10 @@ pub async fn process_vault_withdrawal(
     let lp_token_mint_blueprint = lp_token_mint_blueprint(oracle_nft)?;
     let vault_oracle_blueprint = vault_oracle_spend_blueprint(oracle_nft)?;
     let vault_spend_blueprint = vault_spend_blueprint(oracle_nft)?;
-
+    println!(
+        "vault_spend_blueprint.address: {}",
+        vault_spend_blueprint.address
+    );
     let (vault_utxos, return_amount) =
         get_utxos_for_withdrawal(&vault_spend_blueprint.address, &total_withdrawal_assets).await?;
 
@@ -156,12 +163,16 @@ pub async fn process_vault_withdrawal(
         // burn intents
         .mint_plutus_script_v3()
         .mint(
-            intent_utxos.len() as i128,
+            -(intent_utxos.len() as i128),
             &withdrawl_intent_blueprint.hash,
             "",
         )
-        .minting_script(&withdrawl_intent_blueprint.cbor)
-        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        .mint_tx_in_reference(
+            intent_ref_utxo.input.tx_hash.as_str(),
+            intent_ref_utxo.input.output_index,
+            &withdrawl_intent_blueprint.hash,
+            withdrawl_intent_blueprint.cbor.len() / 2,
+        ) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(withdrawl_intent_redeemer.to_json_string()),
             ex_units: Budget::default(),
@@ -169,15 +180,24 @@ pub async fn process_vault_withdrawal(
         //mint lp token
         .mint_plutus_script_v3()
         .mint(-total_lp_minted, &lp_token_mint_blueprint.hash, "")
-        .minting_script(&lp_token_mint_blueprint.cbor)
-        // .mint_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+        .mint_tx_in_reference(
+            lp_mint_ref_utxo.input.tx_hash.as_str(),
+            lp_mint_ref_utxo.input.output_index,
+            &lp_token_mint_blueprint.hash,
+            lp_token_mint_blueprint.cbor.len() / 2,
+        ) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
             data: WData::JSON(ProcessRedeemer::ProcessWithdrawal.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
         // app oracle ref input
-        .read_only_tx_in_reference(&app_oracle_utxo.tx_hash, app_oracle_utxo.output_index, None)
-        .tx_in_inline_datum_present()
+        // .read_only_tx_in_reference(
+        //     &app_oracle_utxo.input.tx_hash,
+        //     app_oracle_utxo.input.output_index,
+        //     None,
+        // )
+        // .tx_in_inline_datum_present()
+        // .input_for_evaluation(app_oracle_utxo)
         // vault oracle input
         .spending_plutus_script_v3()
         .tx_in(
@@ -191,7 +211,13 @@ pub async fn process_vault_withdrawal(
             data: WData::JSON(ProcessRedeemer::ProcessWithdrawal.to_json_string()),
             ex_units: Budget { mem: 0, steps: 0 },
         })
-        .tx_in_script(&vault_oracle_blueprint.cbor)
+        .spending_tx_in_reference(
+            vault_oracle_spend_ref_utxo.input.tx_hash.as_str(),
+            vault_oracle_spend_ref_utxo.input.output_index,
+            &vault_oracle_blueprint.hash,
+            vault_oracle_blueprint.cbor.len() / 2,
+        )
+        .input_for_evaluation(&vault_oracle_utxo)
         // vault oracle output
         .tx_out(
             &vault_oracle_blueprint.address,
@@ -201,41 +227,33 @@ pub async fn process_vault_withdrawal(
 
     // operator output
     if operator_fee > 0 {
-        let AppConfig { network_id, .. } = AppConfig::new();
-
-        let (lovelace_unit, usdm_unit) = if network_id.parse::<i128>().unwrap() == 0 {
-            (preprod::unit::LOVELACE, preprod::unit::USDM)
-        } else {
-            (mainnet::unit::LOVELACE, mainnet::unit::USDM)
-        };
-        let operator_output_amount = vec![
-            Asset::new_from_str(usdm_unit, &(operator_fee * ratio).to_string()),
-            Asset::new_from_str(
-                lovelace_unit,
-                &cal_lovelace_amount(&prices_map, operator_fee)
-                    .unwrap()
-                    .to_string(),
-            ),
-        ];
+        let operator_output_amount =
+            create_withdrawal_output_amount(&prices_map, operator_fee, ratio)?;
         tx_builder.tx_out(&operator_address, &operator_output_amount);
     }
 
     // add vault utxos
-    for vault in vault_utxos {
+    for vault_utxo in vault_utxos {
         tx_builder
             .spending_plutus_script_v3()
             .tx_in(
-                &vault.input.tx_hash,
-                vault.input.output_index,
-                &vault.output.amount,
-                &vault.output.address,
+                &vault_utxo.input.tx_hash,
+                vault_utxo.input.output_index,
+                &vault_utxo.output.amount,
+                &vault_utxo.output.address,
             )
             .tx_in_redeemer_value(&WRedeemer {
                 data: WData::JSON(VaultRedeemer::WithdrawFund.to_json_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&vault_spend_blueprint.cbor);
-        // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+            .spending_tx_in_reference(
+                vault_ref_utxo.input.tx_hash.as_str(),
+                vault_ref_utxo.input.output_index,
+                &vault_spend_blueprint.hash,
+                vault_spend_blueprint.cbor.len() / 2,
+            ) // For reference scripts
+            .tx_in_inline_datum_present()
+            .input_for_evaluation(&vault_utxo);
     }
 
     // add intent utxos
@@ -251,9 +269,14 @@ pub async fn process_vault_withdrawal(
                 data: WData::JSON(ByteString::new("").to_json_string()),
                 ex_units: Budget { mem: 0, steps: 0 },
             })
-            .tx_in_script(&withdrawl_intent_blueprint.cbor)
-            .tx_in_inline_datum_present();
-        // .spending_tx_in_reference(tx_hash, tx_index, script_hash, script_size) // For reference scripts
+            .spending_tx_in_reference(
+                intent_ref_utxo.input.tx_hash.as_str(),
+                intent_ref_utxo.input.output_index,
+                &withdrawl_intent_blueprint.hash,
+                withdrawl_intent_blueprint.cbor.len() / 2,
+            ) // For reference scripts
+            .tx_in_inline_datum_present()
+            .input_for_evaluation(intent_utxo);
     }
 
     // add intent outputs
@@ -275,6 +298,10 @@ pub async fn process_vault_withdrawal(
             &collateral.output.address,
         )
         .select_utxos_from(inputs, 5000000)
+        .input_for_evaluation(intent_ref_utxo)
+        .input_for_evaluation(lp_mint_ref_utxo)
+        .input_for_evaluation(vault_oracle_spend_ref_utxo)
+        .input_for_evaluation(vault_ref_utxo)
         .complete(None)
         .await?;
 
@@ -284,46 +311,45 @@ pub async fn process_vault_withdrawal(
 #[cfg(test)]
 mod tests {
     use crate::{
-        scripts::withdrawal_intent::withdrawal_intent_spend_blueprint,
+        constant::tx_script, scripts::withdrawal_intent::withdrawal_intent_spend_blueprint,
         utils::wallet::get_operator_wallet,
     };
 
     use super::*;
     use dotenv::dotenv;
     use std::env::var;
+    use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
     #[tokio::test]
     async fn test_process_vault_withdrawal() {
         dotenv().ok();
+        let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
+        let ogmios_provider = OgmiosProvider::new(var("OGMIOS_URL").unwrap().as_str());
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(kupo_provider.clone())
+            .with_submitter(ogmios_provider.clone());
+
         let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
         let oracle_nft = var("ORACLE_NFT").unwrap();
-        let provider = BlockfrostProvider::new(
-            var("BLOCKFROST_PREPROD_PROJECT_ID").unwrap().as_str(),
-            "preprod",
-        );
 
-        let message = "";
+        let message = "d8799f00a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f5820be960e14b4b0cf4674b955f159aaa735e68859fc3009a364201a4ab186b0706f00ffff";
         let signatures = vec!["", "", "", ""];
-        let app_oracle_utxo = &provider
-            .fetch_address_utxos(
-                "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
-                Some(&app_oracle_nft),
-            )
-            .await
-            .unwrap()[0];
+        // let app_oracle_utxo = &kupo_provider
+        //     .fetch_address_utxos(
+        //         "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
+        //         Some(&app_oracle_nft),
+        //     )
+        //     .await
+        //     .unwrap()[0];
 
         let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(&oracle_nft).unwrap();
-        let intent_utxos = provider
+        let intent_utxos = kupo_provider
             .fetch_address_utxos(
                 &withdrawal_intent_blueprint.address,
                 Some(&withdrawal_intent_blueprint.hash),
             )
             .await
             .unwrap();
-
-        let app_owner_wallet = get_operator_wallet()
-            .with_fetcher(provider.clone())
-            .with_submitter(provider.clone());
 
         let operator_address = app_owner_wallet
             .get_change_address(AddressType::Payment)
@@ -334,16 +360,49 @@ mod tests {
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
         let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
+        let intent_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::withdrawal_intent::TX_HASH,
+                Some(tx_script::withdrawal_intent::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+        let lp_mint_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::lp_token::TX_HASH,
+                Some(tx_script::lp_token::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+        let vault_oracle_spend_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::vault_oracle::TX_HASH,
+                Some(tx_script::vault_oracle::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+        let vault_spend_ref_utxo = &kupo_provider
+            .fetch_utxos(
+                tx_script::vault::TX_HASH,
+                Some(tx_script::vault::OUTPUT_INDEX),
+            )
+            .await
+            .unwrap()[0];
+
         let tx_hex = process_vault_withdrawal(
             &oracle_nft,
             message,
             signatures,
-            50,
-            &app_oracle_utxo.input,
+            0,
+            &intent_ref_utxo, // todo: app_oracle_utxo
             &intent_utxos,
             &operator_address,
             &utxos,
             &collateral,
+            intent_ref_utxo,
+            lp_mint_ref_utxo,
+            vault_oracle_spend_ref_utxo,
+            vault_spend_ref_utxo,
         )
         .await
         .unwrap();

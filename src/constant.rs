@@ -16,27 +16,27 @@ pub mod tx_script {
     pub const ADDRESS: &str = "addr_test1qzn9zp4r0u9j8upcf5vmwyp92rktxkguy82gqjsax5v3x9tpjch2tctwrlw8x5777gukav57r8jaezgmmhq0hp9areuqgpaw9k";
     pub mod vault {
         pub const TX_HASH: &str =
-            "f4ee51e7e5a8ba824296fc57fc86dcd40167f99176c2ca2fd64a3e80c631021c";
-        pub const TX_INDEX: u32 = 0;
+            "17a0bc5afb4e9d9cc61f92626419d4735cd753a4ec91723cd9a552c49339dadb";
+        pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod vault_oracle {
         pub const TX_HASH: &str =
-            "c706a9e976d3564fa7a4fb90d264a192e5e77229480e5a5954eb972c93f14a3c";
-        pub const TX_INDEX: u32 = 0;
+            "1090aaa0e9c33117c6357690e16894a40c9b6c6bac3f83f24f869530a25d6b53";
+        pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod deposit_intent {
         pub const TX_HASH: &str =
-            "b4f18061a840dcdbe81bb399b726346b56e138761056a1fc88077063fea419f0";
-        pub const TX_INDEX: u32 = 0;
+            "9a37dfdade59323f1152384ca1e636c73d965642a1ca4fc5e5752ea78e713016";
+        pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod withdrawal_intent {
         pub const TX_HASH: &str =
-            "cc7eef4d63d9e457266cd7ae556abed9b3395c2802e662c103138e82e5eada30";
-        pub const TX_INDEX: u32 = 0;
+            "0e16cf7b6a2c423636ef725a6913aee3cced1f5e315c5b6d197bcd4a80adc164";
+        pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod lp_token {
         pub const TX_HASH: &str =
-            "d51faee3a81bdf2635034f09e4fe67cc2c660ba2568c5abebba3692a27f4b54c";
-        pub const TX_INDEX: u32 = 0;
+            "1b2a051450d8e8cd2dd773b763ad4ac267620c890977d81f8cea1acfae158b2a";
+        pub const OUTPUT_INDEX: u32 = 0;
     }
 }

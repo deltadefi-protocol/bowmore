@@ -56,7 +56,7 @@ pub fn app_deposit_request_mint_blueprint() -> Result<MintingBlueprint, whisky::
     dotenv().ok();
     let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
-    let compiled_code = get_compiled_code_by_index(14)?; // Using index 14 for app deposit request mint
+    let compiled_code = get_compiled_code_by_index(15)?; // Using index 15 for app deposit request mint
     blueprint
         .param_script(
             &compiled_code,
@@ -74,7 +74,7 @@ pub fn app_deposit_request_spend_blueprint() -> Result<SpendingBlueprint, whisky
 
     let mut blueprint =
         SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
-    let compiled_code = get_compiled_code_by_index(15)?; // Using index 15 for app deposit request spend
+    let compiled_code = get_compiled_code_by_index(16)?; // Using index 16 for app deposit request spend
     blueprint
         .param_script(
             &compiled_code,

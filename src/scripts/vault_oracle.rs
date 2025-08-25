@@ -1,7 +1,7 @@
-use whisky::data::{byte_string, output_reference, ByteString, Int, List};
-use whisky::ConstrEnum;
 use dotenv::dotenv;
 use std::env::var;
+use whisky::data::{byte_string, output_reference, ByteString, Int, List};
+use whisky::ConstrEnum;
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum VaultOracleDatum {
@@ -250,22 +250,26 @@ use crate::{
     config::AppConfig,
     scripts::{
         deposit_intent::deposit_intent_mint_blueprint, lp_token::lp_token_mint_blueprint,
-        plutus_loader::get_compiled_code_by_index, vault::vault_spend_blueprint, withdrawal_intent::withdrawal_intent_mint_blueprint,
+        plutus_loader::get_compiled_code_by_index, vault::vault_spend_blueprint,
+        withdrawal_intent::withdrawal_intent_mint_blueprint,
     },
 };
 
-pub fn vault_oracle_mint_blueprint(tx_hash: &str, index: i128) -> Result<MintingBlueprint, whisky::WError> {
+pub fn vault_oracle_mint_blueprint(
+    tx_hash: &str,
+    index: i128,
+) -> Result<MintingBlueprint, whisky::WError> {
     let utxo_ref = output_reference(tx_hash, index);
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
     let compiled_code = get_compiled_code_by_index(5)?; // Using index 5 for vault oracle mint
-    
+
     blueprint
-    .param_script(
-        &compiled_code,
-        &[&utxo_ref.to_string()],
-        BuilderDataType::JSON,
-    )
-    .unwrap();
+        .param_script(
+            &compiled_code,
+            &[&utxo_ref.to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
     Ok(blueprint)
 }
 
@@ -276,12 +280,12 @@ pub fn vault_oracle_spend_blueprint(oracle_nft: &str) -> Result<SpendingBlueprin
         SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
     let compiled_code = get_compiled_code_by_index(10)?; // Using index 10 for vault oracle spend
     blueprint
-    .param_script(
-        &compiled_code,
-        &[&byte_string(oracle_nft).to_string()],
-        BuilderDataType::JSON,
-    )
-    .unwrap();
+        .param_script(
+            &compiled_code,
+            &[&byte_string(oracle_nft).to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
     Ok(blueprint)
 }
 
