@@ -413,7 +413,7 @@ pub fn process_withdrawal_intents(
     let mut total_usd_value: i128 = 0;
     let mut total_lp_amount: i128 = 0;
     let mut indices = Vec::new();
-    let mut index: i128 = 2;
+    let mut index: i128 = 1;
 
     for utxo in utxos {
         let (output, assets, usd_value, lp_amount) =

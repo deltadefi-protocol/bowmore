@@ -42,7 +42,7 @@ mod tests {
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
 
         let tx_hex = send_lovelace(
-            "addr_test1wzczetkqy2a4sdekc84e9vxsnfyfzzle7u4j2s58qlpnrrcu4cr2q",
+            "addr_test1wppcvw3ss0a6xxtc9e4qdc6ajxc2fyuxqmfx8gyt68p0xjq36wehh",
             &address,
             &utxos,
         )

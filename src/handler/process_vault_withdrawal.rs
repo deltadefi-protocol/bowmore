@@ -41,7 +41,7 @@ pub async fn process_vault_withdrawal(
 ) -> Result<String, WError> {
     // Decode the message to extract vault balance, prices, and UTXO reference
     let decoded_message = SignedMessage::from_plutus_data(message)?;
-    let (mut vault_balance, prices_map, utxo_ref) = match &decoded_message {
+    let (vault_balance, prices_map, utxo_ref) = match &decoded_message {
         SignedMessage::Message(balance, prices, ref_utxo) => (
             balance.clone().int,
             prices
@@ -63,7 +63,6 @@ pub async fn process_vault_withdrawal(
             ref_utxo,
         ),
     };
-    vault_balance = 18000000;
     let vault_oracle_tx_hash = (*utxo_ref.clone().fields).0.bytes;
     let vault_oracle_output_index = (*utxo_ref.clone().fields).1.int;
 
@@ -225,13 +224,6 @@ pub async fn process_vault_withdrawal(
         )
         .tx_out_inline_datum_value(&WData::JSON(updated_vault_oracle_datum.to_json_string())); // JSON string datum
 
-    // operator output
-    if operator_fee > 0 {
-        let operator_output_amount =
-            create_withdrawal_output_amount(&prices_map, operator_fee, ratio)?;
-        tx_builder.tx_out(&operator_address, &operator_output_amount);
-    }
-
     // add vault utxos
     for vault_utxo in vault_utxos {
         tx_builder
@@ -284,6 +276,13 @@ pub async fn process_vault_withdrawal(
         tx_builder.tx_out(&intent_output.address, &intent_output.amount);
     }
 
+    // operator output
+    if operator_fee > 0 {
+        let operator_output_amount =
+            create_withdrawal_output_amount(&prices_map, operator_fee, ratio)?;
+        tx_builder.tx_out(&operator_address, &operator_output_amount);
+    }
+
     // add vault change outputs
     if !return_amount.is_empty() {
         tx_builder.tx_out(&vault_spend_blueprint.address, &return_amount);
@@ -320,7 +319,21 @@ mod tests {
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
-    #[tokio::test]
+    #[test]
+    fn my_async_task() {
+        let handle = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(test_process_vault_withdrawal());
+            })
+            .unwrap();
+
+        handle.join().unwrap();
+    }
     async fn test_process_vault_withdrawal() {
         dotenv().ok();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
@@ -332,7 +345,7 @@ mod tests {
         let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
         let oracle_nft = var("ORACLE_NFT").unwrap();
 
-        let message = "d8799f00a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f5820be960e14b4b0cf4674b955f159aaa735e68859fc3009a364201a4ab186b0706f00ffff";
+        let message = "d8799f1a0112a880a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f582073e77a471edd4e749c7b51e7ee4d330bae9442e12da1049fa6a5175fb832338900ffff";
         let signatures = vec!["", "", "", ""];
         // let app_oracle_utxo = &kupo_provider
         //     .fetch_address_utxos(

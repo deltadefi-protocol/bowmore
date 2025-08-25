@@ -61,7 +61,21 @@ mod tests {
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
 
-    #[tokio::test]
+    #[test]
+    fn my_async_task() {
+        let handle = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                rt.block_on(test_vault_withdrawal());
+            })
+            .unwrap();
+
+        handle.join().unwrap();
+    }
     async fn test_vault_withdrawal() {
         dotenv().ok();
 
