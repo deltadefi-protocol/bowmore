@@ -83,7 +83,7 @@ impl VaultOracleDatum {
             whisky::WError::new("Invalid VaultOracleDatum structure", "InvalidDataError")
         })?;
 
-        if fields.len() < 10 {
+        if fields.len() < 12 {
             return Err(whisky::WError::new(
                 "Not enough fields in VaultOracleDatum",
                 "InvalidDataError",

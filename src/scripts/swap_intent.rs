@@ -1,12 +1,53 @@
-use whisky::data::byte_string;
+use whisky::data::{byte_string, Address, Int, List, Value};
 
 use whisky::{
     utils::blueprint::{MintingBlueprint, SpendingBlueprint},
     BuilderDataType, LanguageVersion,
 };
+use whisky::{Asset, ConstrEnum};
 
 use crate::config::AppConfig;
 use crate::scripts::plutus_loader::get_compiled_code_by_index;
+
+#[derive(Debug, Clone, ConstrEnum)]
+
+pub enum SwapIntentWithdrawRedeemer {
+    BurnIntent(List<Int>),
+}
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum SwapIntentDatum {
+    Datum(Address, Value, Value),
+}
+
+impl SwapIntentDatum {
+    pub fn new(from_assets: &[Asset], to_assets: &[Asset], address: &str) -> Self {
+        let from_value = Value::from_asset_vec(from_assets);
+        let to_value = Value::from_asset_vec(to_assets);
+        let w_address = whisky::deserialize_address(address);
+
+        let (payment_key_hash, is_script_payment_key) = if w_address.pub_key_hash.is_empty() {
+            (w_address.script_hash, true)
+        } else {
+            (w_address.pub_key_hash, false)
+        };
+
+        let (stake_key_hash, is_script_stake_key) = if w_address.stake_key_hash.is_empty() {
+            (w_address.stake_key_script_hash, true)
+        } else {
+            (w_address.stake_key_hash, false)
+        };
+
+        let address_datum = Address::new(
+            &payment_key_hash,
+            Some(&stake_key_hash),
+            is_script_payment_key,
+            is_script_stake_key,
+        );
+
+        SwapIntentDatum::Datum(address_datum, from_value, to_value)
+    }
+}
 
 pub fn swap_intent_mint_blueprint(oracle_nft: &str) -> Result<MintingBlueprint, whisky::WError> {
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
