@@ -118,14 +118,10 @@ pub fn combine_assets(assets1: &[Asset], assets2: &[Asset]) -> Vec<Asset> {
 
     for asset2 in assets2 {
         let unit = asset2.unit();
-
-        // Try to find matching asset in the combined list
         if let Some(pos) = combined.iter().position(|a| a.unit() == unit) {
-            // If found, sum the quantities
             let new_quantity = combined[pos].quantity_i128() + asset2.quantity_i128();
             combined[pos] = Asset::new_from_str(&unit, &new_quantity.to_string());
         } else {
-            // If not found, append the asset
             combined.push(asset2.clone());
         }
     }
@@ -136,18 +132,14 @@ pub fn combine_assets(assets1: &[Asset], assets2: &[Asset]) -> Vec<Asset> {
 pub fn subtract_assets(assets1: &[Asset], assets2: &[Asset]) -> Vec<Asset> {
     let mut result = Vec::new();
 
-    // First copy all assets from assets1
     for asset1 in assets1 {
         let unit = asset1.unit();
-
-        // If this asset exists in assets2, subtract its quantity
         if let Some(asset2) = assets2.iter().find(|a| a.unit() == unit) {
             let remaining = asset1.quantity_i128() - asset2.quantity_i128();
             if remaining > 0 {
                 result.push(Asset::new_from_str(&unit, &remaining.to_string()));
             }
         } else {
-            // If not in assets2, keep the original amount
             result.push(asset1.clone());
         }
     }
@@ -185,17 +177,17 @@ pub fn process_deposit_intent(
             );
 
             // Extract assets from the value field
-            let assets_array = datum_json["fields"][1]["map"]
+            let from_assets_array = datum_json["fields"][1]["map"]
                 .as_array()
                 .ok_or_else(|| WError::new("Missing assets array in JSON", "InvalidDataError"))?;
 
             let mut assets = Vec::new();
-            for asset_pair in assets_array {
-                let policy_id = asset_pair["k"]["bytes"]
+            for from_asset_pair in from_assets_array {
+                let policy_id = from_asset_pair["k"]["bytes"]
                     .as_str()
                     .ok_or_else(|| WError::new("Missing policy_id in asset", "InvalidDataError"))?;
 
-                let asset = asset_pair["v"]["map"].as_array().ok_or_else(|| {
+                let asset = from_asset_pair["v"]["map"].as_array().ok_or_else(|| {
                     WError::new("Missing asset array in JSON", "InvalidDataError")
                 })?;
 
@@ -543,4 +535,154 @@ pub async fn get_utxos_for_withdrawal(
     let return_value = subtract_assets(&selected_assets, &withdrawal_with_min_ada);
 
     Ok((selected_utxos, return_value))
+}
+
+pub fn cal_vault_change(from: &[Asset], to: &[Asset]) -> Vec<Asset> {
+    subtract_assets(from, to)
+}
+
+pub fn process_swap_intent(utxo: &UTxO) -> Result<(Output, Vec<Asset>), WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
+    match &utxo.output.plutus_data {
+        Some(plutus_data) => {
+            let datum_json = whisky::csl::decode_plutus_datum_to_json_value(
+                &whisky::csl::PlutusData::from_hex(&plutus_data).map_err(|_e| {
+                    WError::new("Failed to decode Plutus data", "InvalidDatumError")
+                })?,
+                whisky::csl::PlutusDatumSchema::DetailedSchema,
+            )
+            .map_err(|_err| {
+                WError::new("Failed to decode Plutus datum to JSON", "InvalidDatumError")
+            })?;
+
+            let address_value = datum_json["fields"][0].to_string();
+            let address = parse_plutus_address_obj_to_bech32(
+                &address_value,
+                network_id.parse::<u8>().unwrap(),
+            );
+
+            // Extract assets from the value field
+            let from_assets_array = datum_json["fields"][1]["map"]
+                .as_array()
+                .ok_or_else(|| WError::new("Missing assets array in JSON", "InvalidDataError"))?;
+            let mut from_assets = Vec::new();
+            for from_asset_pair in from_assets_array {
+                let policy_id = from_asset_pair["k"]["bytes"]
+                    .as_str()
+                    .ok_or_else(|| WError::new("Missing policy_id in asset", "InvalidDataError"))?;
+
+                let asset = from_asset_pair["v"]["map"].as_array().ok_or_else(|| {
+                    WError::new("Missing asset array in JSON", "InvalidDataError")
+                })?;
+
+                for asset_entry in asset {
+                    let asset_name = asset_entry["k"]["bytes"].as_str().ok_or_else(|| {
+                        WError::new("Missing asset_name in asset", "InvalidDataError")
+                    })?;
+                    let quantity = asset_entry["v"]["int"].as_i64().ok_or_else(|| {
+                        WError::new("Missing quantity in asset", "InvalidDataError")
+                    })?;
+
+                    let unit = if asset_name.is_empty() {
+                        if policy_id.is_empty() {
+                            preprod::unit::LOVELACE.to_string()
+                        } else {
+                            policy_id.to_string()
+                        }
+                    } else {
+                        format!("{}{}", policy_id, asset_name)
+                    };
+                    from_assets.push(Asset::new_from_str(&unit, &quantity.to_string()));
+                }
+            }
+
+            let to_assets_array = datum_json["fields"][2]["map"]
+                .as_array()
+                .ok_or_else(|| WError::new("Missing assets array in JSON", "InvalidDataError"))?;
+            let mut to_assets = Vec::new();
+            for to_asset_pair in to_assets_array {
+                let policy_id = to_asset_pair["k"]["bytes"]
+                    .as_str()
+                    .ok_or_else(|| WError::new("Missing policy_id in asset", "InvalidDataError"))?;
+
+                let asset = to_asset_pair["v"]["map"].as_array().ok_or_else(|| {
+                    WError::new("Missing asset array in JSON", "InvalidDataError")
+                })?;
+
+                for asset_entry in asset {
+                    let asset_name = asset_entry["k"]["bytes"].as_str().ok_or_else(|| {
+                        WError::new("Missing asset_name in asset", "InvalidDataError")
+                    })?;
+                    let quantity = asset_entry["v"]["int"].as_i64().ok_or_else(|| {
+                        WError::new("Missing quantity in asset", "InvalidDataError")
+                    })?;
+
+                    let unit = if asset_name.is_empty() {
+                        if policy_id.is_empty() {
+                            preprod::unit::LOVELACE.to_string()
+                        } else {
+                            policy_id.to_string()
+                        }
+                    } else {
+                        format!("{}{}", policy_id, asset_name)
+                    };
+                    to_assets.push(Asset::new_from_str(&unit, &quantity.to_string()));
+                }
+            }
+
+            let vault_change = cal_vault_change(&from_assets, &to_assets);
+
+            let output = Output {
+                address: address.to_string(),
+                amount: to_assets,
+                datum: None,
+                reference_script: None,
+            };
+
+            Ok((output, vault_change))
+        }
+        None => Err(WError::new(
+            "UTxO does not contain Plutus data for SwapIntentDatum",
+            "InvalidDatumError",
+        )),
+    }
+}
+
+pub fn process_swap_intents(
+    utxos: &[UTxO],
+) -> Result<(Vec<Output>, Vec<Asset>, Vec<Asset>, List<Int>), WError> {
+    let mut outputs = Vec::new();
+    let mut all_assets = Vec::new();
+    let mut indices = Vec::new();
+    let mut index: i128 = 0;
+
+    for utxo in utxos {
+        let (output, vault_change) = process_swap_intent(utxo)?;
+
+        indices.push(Int::new(index));
+        index += 1;
+        outputs.push(output);
+        all_assets = combine_assets(&all_assets, &vault_change);
+    }
+
+    // todo: handle min utxo lovelace
+    let mut withdraw_assets = Vec::new();
+    let mut receive_assets = Vec::new();
+    for asset in all_assets {
+        if asset.quantity_i128() > 0 {
+            receive_assets.push(asset);
+        } else {
+            let new_asset =
+                Asset::new_from_str(&asset.unit(), &(-asset.quantity_i128()).to_string());
+            withdraw_assets.push(new_asset);
+        }
+    }
+
+    Ok((
+        outputs,
+        withdraw_assets,
+        receive_assets,
+        List::new(&indices),
+    ))
 }

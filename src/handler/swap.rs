@@ -3,7 +3,7 @@ use whisky::{data::PlutusDataJson, *};
 use crate::scripts::swap_intent::{swap_intent_spend_blueprint, IntentRedeemer, SwapIntentDatum};
 
 pub async fn swap(
-    oracle_nft: &str,
+    swap_oracle_nft: &str,
     swap_from_asset: &[Asset],
     swap_to_asset: &[Asset],
     user_address: &str,
@@ -11,7 +11,7 @@ pub async fn swap(
     collateral: &UTxO,
     mint_ref_utxo: &UTxO,
 ) -> Result<String, WError> {
-    let swap_intent_blueprint = swap_intent_spend_blueprint(oracle_nft).unwrap();
+    let swap_intent_blueprint = swap_intent_spend_blueprint(swap_oracle_nft).unwrap();
 
     let swap_intent_datum = SwapIntentDatum::new(swap_from_asset, swap_to_asset, user_address);
 
@@ -79,7 +79,7 @@ mod tests {
     async fn test_swap() {
         dotenv().ok();
 
-        let oracle_nft = var("ORACLE_NFT").unwrap();
+        let swap_oracle_nft = var("SWAP_ORACLE_NFT").unwrap();
         let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
         let ogmios_provider = OgmiosProvider::new(var("OGMIOS_URL").unwrap().as_str());
         let app_owner_wallet = get_operator_wallet()
@@ -107,7 +107,7 @@ mod tests {
         let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
         let tx_hex = swap(
-            &oracle_nft,
+            &swap_oracle_nft,
             &from_asset,
             &to_asset,
             &address,

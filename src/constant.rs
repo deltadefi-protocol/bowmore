@@ -44,3 +44,5 @@ pub mod tx_script {
         pub const OUTPUT_INDEX: u32 = 0;
     }
 }
+
+pub const MIN_UTXO_LOVELACE: u64 = 3_000_000;

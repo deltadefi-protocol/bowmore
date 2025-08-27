@@ -6,6 +6,7 @@ use crate::scripts::{
 };
 
 pub async fn setup_swap_oracle(
+    vault_oracle_nft: &str,
     my_address: &str,
     inputs: &[UTxO],
     collateral: &UTxO,
@@ -23,6 +24,7 @@ pub async fn setup_swap_oracle(
         swap_oracle_spend_blueprint(&swap_oracle_mint_blueprint.hash)?;
 
     let vault_oracle_datum = SwapOracleDatum::setup_swap_oracle_datum(
+        vault_oracle_nft,
         vault_script_hash,
         &swap_oracle_mint_blueprint.hash,
         operator_key,
@@ -100,6 +102,8 @@ mod tests {
             .with_fetcher(kupo_provider.clone())
             .with_submitter(ogmios_provider.clone());
 
+        let oracle_nft = var("ORACLE_NFT").unwrap();
+
         let app_operator_key = app_owner_wallet
             .addresses
             .base_address
@@ -120,11 +124,12 @@ mod tests {
         let collateral = app_owner_wallet.get_collateral(None).await.unwrap()[0].clone();
 
         let tx_hex = setup_swap_oracle(
+            &oracle_nft,
             &address,
             &wallet_utxos,
             &collateral,
             &one_shot,
-            "",
+            "todo",
             &app_operator_key,
             50,
             &app_operator_key,

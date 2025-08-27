@@ -12,20 +12,29 @@ use crate::scripts::swap_intent::swap_intent_mint_blueprint;
 
 #[derive(Debug, Clone, ConstrEnum)]
 pub enum SwapOracleDatum {
-    Datum(ByteString, ByteString, ByteString, Int, ByteString),
+    Datum(
+        ByteString,
+        ByteString,
+        ByteString,
+        ByteString,
+        Int,
+        ByteString,
+    ),
 }
 
 impl SwapOracleDatum {
     pub fn setup_swap_oracle_datum(
-        oracle_nft: &str,
+        vault_oracle_nft: &str,
+        swap_oracle_nft: &str,
         vault_script_hash: &str,
         operator_key: &str,
         swap_charge: i128,
         dd_key: &str,
     ) -> Result<Self, whisky::WError> {
-        let vault_spend_blueprint = swap_intent_mint_blueprint(&oracle_nft)?;
+        let vault_spend_blueprint = swap_intent_mint_blueprint(&swap_oracle_nft)?;
 
         Ok(SwapOracleDatum::Datum(
+            ByteString::new(vault_oracle_nft),
             ByteString::new(vault_script_hash),
             ByteString::new(&vault_spend_blueprint.hash),
             ByteString::new(operator_key),
@@ -54,44 +63,51 @@ impl SwapOracleDatum {
             whisky::WError::new("Invalid SwapOracleDatum structure", "InvalidDataError")
         })?;
 
-        if fields.len() < 5 {
+        if fields.len() < 6 {
             return Err(whisky::WError::new(
                 "Not enough fields in SwapOracleDatum",
                 "InvalidDataError",
             ));
         }
 
-        // Extract vault_script_hash (field 0)
-        let vault_script_hash_bytes = fields[0]["bytes"].as_str().ok_or_else(|| {
+        // Extract vault_oracle_nft (field 0)
+        let vault_oracle_nft_bytes = fields[0]["bytes"].as_str().ok_or_else(|| {
+            whisky::WError::new("Missing vault_oracle_nft field", "InvalidDataError")
+        })?;
+        let vault_oracle_nft = ByteString::new(vault_oracle_nft_bytes);
+
+        // Extract vault_script_hash (field 1)
+        let vault_script_hash_bytes = fields[1]["bytes"].as_str().ok_or_else(|| {
             whisky::WError::new("Missing vault_script_hash field", "InvalidDataError")
         })?;
         let vault_script_hash = ByteString::new(vault_script_hash_bytes);
 
-        // Extract swap_intent_script_hash (field 1)
-        let swap_intent_script_hash_bytes = fields[1]["bytes"].as_str().ok_or_else(|| {
+        // Extract swap_intent_script_hash (field 2)
+        let swap_intent_script_hash_bytes = fields[2]["bytes"].as_str().ok_or_else(|| {
             whisky::WError::new("Missing swap_intent_script_hash field", "InvalidDataError")
         })?;
         let swap_intent_script_hash = ByteString::new(swap_intent_script_hash_bytes);
 
-        // Extract operator_key (field 2)
-        let operator_key_bytes = fields[2]["bytes"]
+        // Extract operator_key (field 3)
+        let operator_key_bytes = fields[3]["bytes"]
             .as_str()
             .ok_or_else(|| whisky::WError::new("Missing operator_key field", "InvalidDataError"))?;
         let operator_key = ByteString::new(operator_key_bytes);
 
-        // Extract swap_charge (field 3)
-        let swap_charge_int = fields[3]["int"].as_i64().ok_or_else(|| {
+        // Extract swap_charge (field 4)
+        let swap_charge_int = fields[4]["int"].as_i64().ok_or_else(|| {
             whisky::WError::new("Missing or invalid swap_charge field", "InvalidDataError")
         })?;
         let swap_charge = Int::new(swap_charge_int as i128);
 
-        // Extract dd_key (field 4)
-        let dd_key_bytes = fields[4]["bytes"]
+        // Extract dd_key (field 5)
+        let dd_key_bytes = fields[5]["bytes"]
             .as_str()
             .ok_or_else(|| whisky::WError::new("Missing dd_key field", "InvalidDataError"))?;
         let dd_key = ByteString::new(dd_key_bytes);
 
         Ok(SwapOracleDatum::Datum(
+            vault_oracle_nft,
             vault_script_hash,
             swap_intent_script_hash,
             operator_key,
@@ -119,7 +135,9 @@ pub fn swap_oracle_mint_blueprint(
     Ok(blueprint)
 }
 
-pub fn swap_oracle_spend_blueprint(oracle_nft: &str) -> Result<SpendingBlueprint, whisky::WError> {
+pub fn swap_oracle_spend_blueprint(
+    swap_oracle_nft: &str,
+) -> Result<SpendingBlueprint, whisky::WError> {
     let AppConfig { network_id, .. } = AppConfig::new();
 
     let mut blueprint =
@@ -128,7 +146,7 @@ pub fn swap_oracle_spend_blueprint(oracle_nft: &str) -> Result<SpendingBlueprint
     blueprint
         .param_script(
             &compiled_code,
-            &[&byte_string(oracle_nft).to_string()],
+            &[&byte_string(swap_oracle_nft).to_string()],
             BuilderDataType::JSON,
         )
         .unwrap();
