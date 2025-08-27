@@ -6,6 +6,7 @@ pub mod setup_script;
 pub mod setup_swap_oracle;
 pub mod setup_vault_oracle;
 pub mod sign_transaction;
+pub mod swap;
 pub mod vault_deposit;
 pub mod vault_withdrawal;
 pub async fn placeholder() -> Result<(), WError> {

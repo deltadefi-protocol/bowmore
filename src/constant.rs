@@ -39,4 +39,8 @@ pub mod tx_script {
             "846df646b88eb6a1dc409fa5989986ae4e8fd4a2887b420bec84ec2a7230e75b";
         pub const OUTPUT_INDEX: u32 = 0;
     }
+    pub mod swap_intent {
+        pub const TX_HASH: &str = "";
+        pub const OUTPUT_INDEX: u32 = 0;
+    }
 }

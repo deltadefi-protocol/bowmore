@@ -20,6 +20,12 @@ pub enum SwapIntentDatum {
     Datum(Address, Value, Value),
 }
 
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum IntentRedeemer {
+    MintIntent,
+    BurnIntent,
+}
+
 impl SwapIntentDatum {
     pub fn new(from_assets: &[Asset], to_assets: &[Asset], address: &str) -> Self {
         let from_value = Value::from_asset_vec(from_assets);
