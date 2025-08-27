@@ -3,6 +3,7 @@ pub mod process_vault_deposit;
 pub mod process_vault_withdrawal;
 pub mod send_lovelace;
 pub mod setup_script;
+pub mod setup_swap_oracle;
 pub mod setup_vault_oracle;
 pub mod sign_transaction;
 pub mod vault_deposit;
