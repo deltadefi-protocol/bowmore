@@ -106,6 +106,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .payment_cred()
+            .to_keyhash()
+            .unwrap()
             .to_hex();
 
         let address = app_owner_wallet

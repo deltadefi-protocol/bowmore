@@ -2,6 +2,7 @@ use whisky::WError;
 pub mod process_swap;
 pub mod process_vault_deposit;
 pub mod process_vault_withdrawal;
+pub mod register_cert;
 pub mod send_lovelace;
 pub mod setup_script;
 pub mod setup_swap_oracle;

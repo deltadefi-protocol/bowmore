@@ -25,7 +25,8 @@ mod tests {
     use crate::{
         scripts::{
             deposit_intent::deposit_intent_mint_blueprint, lp_token::lp_token_mint_blueprint,
-            vault::vault_spend_blueprint, vault_oracle::vault_oracle_spend_blueprint,
+            swap_intent::swap_intent_spend_blueprint, vault::vault_spend_blueprint,
+            vault_oracle::vault_oracle_spend_blueprint,
             withdrawal_intent::withdrawal_intent_mint_blueprint,
         },
         utils::wallet::get_operator_wallet,
@@ -57,6 +58,7 @@ mod tests {
         test_tx_out_deposit_intent_script().await;
         test_tx_out_withdrawal_intent_script().await;
         test_tx_out_lp_token_script().await;
+        test_tx_out_swap_intent_script().await;
     }
 
     async fn test_tx_out_vault_script() {
@@ -216,6 +218,39 @@ mod tests {
         let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
         let result = app_owner_wallet.submit_tx(&signed_tx).await;
         print!("lp token result: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Transaction submission failed: {:?}",
+            result.err()
+        );
+    }
+
+    async fn test_tx_out_swap_intent_script() {
+        dotenv().ok();
+        let kupo_provider = KupoProvider::new(var("KUPO_URL").unwrap().as_str());
+        let ogmios_provider = OgmiosProvider::new(var("OGMIOS_URL").unwrap().as_str());
+
+        let swap_oracle_nft = var("SWAP_ORACLE_NFT").unwrap();
+        let swap_intent_blueprint = swap_intent_spend_blueprint(&swap_oracle_nft).unwrap();
+
+        let app_owner_wallet = get_operator_wallet()
+            .with_fetcher(kupo_provider.clone())
+            .with_submitter(ogmios_provider.clone());
+
+        let address = app_owner_wallet
+            .get_change_address(AddressType::Payment)
+            .unwrap()
+            .to_string();
+
+        let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
+
+        let tx_hex = setup_tx_script(&address, &utxos, &swap_intent_blueprint.cbor)
+            .await
+            .unwrap();
+
+        let signed_tx = app_owner_wallet.sign_tx(&tx_hex).unwrap();
+        let result = app_owner_wallet.submit_tx(&signed_tx).await;
+        print!("swap intent result: {:?}", result);
         assert!(
             result.is_ok(),
             "Transaction submission failed: {:?}",

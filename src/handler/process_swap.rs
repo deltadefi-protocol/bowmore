@@ -5,7 +5,10 @@ use whisky::{
 
 use crate::{
     scripts::{
-        swap_intent::{swap_intent_spend_blueprint, SwapIntentWithdrawRedeemer},
+        swap_intent::{
+            swap_intent_spend_blueprint, swap_intent_withdraw_blueprint, IntentRedeemer,
+            SwapIntentWithdrawRedeemer,
+        },
         swap_oracle::SwapOracleDatum,
         vault::{vault_spend_blueprint, VaultRedeemer},
     },
@@ -40,9 +43,9 @@ pub async fn process_swap(
         vault_oracle_nft,
         _vault_script_hash,
         _swap_intent_script_hash,
-        _operator_key,
+        operator_key,
         _swap_charge,
-        _dd_key,
+        dd_key,
     ) = match &vault_oracle_input_datum {
         SwapOracleDatum::Datum(
             vault_oracle_nft,
@@ -63,12 +66,13 @@ pub async fn process_swap(
 
     // Create blueprints
     let swap_intent_blueprint = swap_intent_spend_blueprint(swap_oracle_nft)?;
+    let withdraw_blueprint = swap_intent_withdraw_blueprint(swap_oracle_nft)?;
     let vault_spend_blueprint = vault_spend_blueprint(&vault_oracle_nft.bytes)?;
 
     let (vault_utxos, return_amount) =
         get_utxos_for_withdrawal(&vault_spend_blueprint.address, &withdraw_asset).await?;
 
-    let swap_intent_redeemer = SwapIntentWithdrawRedeemer::BurnIntent(indices);
+    let swap_intent_withdraw_redeemer = SwapIntentWithdrawRedeemer::BurnIntent(indices);
 
     // Build the transaction
     let mut tx_builder = TxBuilder::new_core();
@@ -87,7 +91,7 @@ pub async fn process_swap(
             swap_intent_blueprint.cbor.len() / 2,
         ) // For reference scripts
         .mint_redeemer_value(&WRedeemer {
-            data: WData::JSON(swap_intent_redeemer.to_json_string()),
+            data: WData::JSON(IntentRedeemer::BurnIntent.to_json_string()),
             ex_units: Budget::default(),
         })
         // swap oracle ref input
@@ -95,10 +99,7 @@ pub async fn process_swap(
             &swap_oracle_utxo.input.tx_hash,
             swap_oracle_utxo.input.output_index,
             None,
-        )
-        .tx_in_inline_datum_present()
-        .input_for_evaluation(swap_oracle_utxo);
-
+        );
     // add vault utxos
     for vault_utxo in vault_utxos {
         tx_builder
@@ -167,6 +168,20 @@ pub async fn process_swap(
             &collateral.output.address,
         )
         .select_utxos_from(inputs, 5000000)
+        .required_signer_hash(&operator_key.bytes)
+        // .required_signer_hash(&dd_key.bytes)
+        .withdrawal_plutus_script_v3()
+        .withdrawal(&withdraw_blueprint.address, 0)
+        .withdrawal_redeemer_value(&WRedeemer {
+            data: WData::JSON(swap_intent_withdraw_redeemer.to_json_string()),
+            ex_units: Budget::default(),
+        })
+        .withdrawal_tx_in_reference(
+            intent_ref_utxo.input.tx_hash.as_str(),
+            intent_ref_utxo.input.output_index,
+            &swap_intent_blueprint.hash,
+            swap_intent_blueprint.cbor.len() / 2,
+        )
         .input_for_evaluation(intent_ref_utxo)
         .complete(None)
         .await?;
@@ -243,10 +258,10 @@ mod tests {
             )
             .await
             .unwrap()[0];
-        let vault_oracle_spend_ref_utxo = &kupo_provider
+        let vault_spend_ref_utxo = &kupo_provider
             .fetch_utxos(
-                tx_script::vault_oracle::TX_HASH,
-                Some(tx_script::vault_oracle::OUTPUT_INDEX),
+                tx_script::vault::TX_HASH,
+                Some(tx_script::vault::OUTPUT_INDEX),
             )
             .await
             .unwrap()[0];
@@ -259,7 +274,7 @@ mod tests {
             &utxos,
             &collateral,
             &intent_ref_utxo,
-            &vault_oracle_spend_ref_utxo,
+            &vault_spend_ref_utxo,
         )
         .await
         .unwrap();

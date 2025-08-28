@@ -16,12 +16,12 @@ pub mod tx_script {
     pub const ADDRESS: &str = "addr_test1qzn9zp4r0u9j8upcf5vmwyp92rktxkguy82gqjsax5v3x9tpjch2tctwrlw8x5777gukav57r8jaezgmmhq0hp9areuqgpaw9k";
     pub mod vault {
         pub const TX_HASH: &str =
-            "ced0797b69ae897ae1d35d624597918571fd5edf094636a4b52c1ef7b8fc64d2";
+            "720550fa157f188ce2e7f818d097c2e80d5c451ff22e3a8e2f975233ad76f33d";
         pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod vault_oracle {
         pub const TX_HASH: &str =
-            "6de5334354b351d1313f157d99e5f832417f77e08a488d13f600be196f679f9c";
+            "ebb0f53051725021f6c217b497493d712ad434424b251602d04917708728247d";
         pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod deposit_intent {
@@ -40,7 +40,8 @@ pub mod tx_script {
         pub const OUTPUT_INDEX: u32 = 0;
     }
     pub mod swap_intent {
-        pub const TX_HASH: &str = "";
+        pub const TX_HASH: &str =
+            "284f0db121c445899e3b66f4521018040f275a2eea69692551954de8e56bb23b";
         pub const OUTPUT_INDEX: u32 = 0;
     }
 }

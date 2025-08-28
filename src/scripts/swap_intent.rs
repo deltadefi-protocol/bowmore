@@ -1,5 +1,6 @@
 use whisky::data::{byte_string, Address, Int, List, Value};
 
+use whisky::utils::blueprint::WithdrawalBlueprint;
 use whisky::{
     utils::blueprint::{MintingBlueprint, SpendingBlueprint},
     BuilderDataType, LanguageVersion,
@@ -55,20 +56,24 @@ impl SwapIntentDatum {
     }
 }
 
-pub fn swap_intent_mint_blueprint(oracle_nft: &str) -> Result<MintingBlueprint, whisky::WError> {
+pub fn swap_intent_mint_blueprint(
+    swap_oracle_nft: &str,
+) -> Result<MintingBlueprint, whisky::WError> {
     let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
     let compiled_code = get_compiled_code_by_index(18)?; // Using index 18 for swap intent mint
     blueprint
         .param_script(
             &compiled_code,
-            &[&byte_string(oracle_nft).to_string()],
+            &[&byte_string(swap_oracle_nft).to_string()],
             BuilderDataType::JSON,
         )
         .unwrap();
     Ok(blueprint)
 }
 
-pub fn swap_intent_spend_blueprint(oracle_nft: &str) -> Result<SpendingBlueprint, whisky::WError> {
+pub fn swap_intent_spend_blueprint(
+    swap_oracle_nft: &str,
+) -> Result<SpendingBlueprint, whisky::WError> {
     let AppConfig { network_id, .. } = AppConfig::new();
 
     let mut blueprint =
@@ -77,7 +82,24 @@ pub fn swap_intent_spend_blueprint(oracle_nft: &str) -> Result<SpendingBlueprint
     blueprint
         .param_script(
             &compiled_code,
-            &[&byte_string(oracle_nft).to_string()],
+            &[&byte_string(swap_oracle_nft).to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
+    Ok(blueprint)
+}
+
+pub fn swap_intent_withdraw_blueprint(
+    swap_oracle_nft: &str,
+) -> Result<WithdrawalBlueprint, whisky::WError> {
+    let AppConfig { network_id, .. } = AppConfig::new();
+
+    let mut blueprint = WithdrawalBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap());
+    let compiled_code = get_compiled_code_by_index(18)?; // Using index 18 for swap intent spend
+    blueprint
+        .param_script(
+            &compiled_code,
+            &[&byte_string(swap_oracle_nft).to_string()],
             BuilderDataType::JSON,
         )
         .unwrap();

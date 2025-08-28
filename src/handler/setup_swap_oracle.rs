@@ -73,7 +73,7 @@ pub async fn setup_swap_oracle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::wallet::get_operator_wallet;
+    use crate::{scripts::vault::vault_spend_blueprint, utils::wallet::get_operator_wallet};
     use dotenv::dotenv;
     use std::env::var;
     use whisky::{kupo::KupoProvider, ogmios::OgmiosProvider};
@@ -103,6 +103,7 @@ mod tests {
             .with_submitter(ogmios_provider.clone());
 
         let oracle_nft = var("ORACLE_NFT").unwrap();
+        let vault_spend_blueprint = vault_spend_blueprint(&oracle_nft).unwrap();
 
         let app_operator_key = app_owner_wallet
             .addresses
@@ -110,6 +111,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .payment_cred()
+            .to_keyhash()
+            .unwrap()
             .to_hex();
 
         let address = app_owner_wallet
@@ -129,7 +132,7 @@ mod tests {
             &wallet_utxos,
             &collateral,
             &one_shot,
-            "todo",
+            &vault_spend_blueprint.hash,
             &app_operator_key,
             50,
             &app_operator_key,
