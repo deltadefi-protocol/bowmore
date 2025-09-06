@@ -6,8 +6,7 @@ use whisky::{
 };
 
 use crate::{
-    config::AppConfig,
-    constant::{mainnet, preprod, tx_script::vault},
+    constant::preprod,
     scripts::{
         deposit_intent::{IntentRedeemer, SignedMessage},
         lp_token::lp_token_mint_blueprint,
@@ -17,8 +16,8 @@ use crate::{
     },
     utils::{
         batch_process::{
-            cal_lovelace_amount, cal_operator_fee, create_withdrawal_output_amount,
-            get_utxos_for_withdrawal, process_withdrawal_intents,
+            cal_operator_fee, create_withdrawal_output_amount, get_utxos_for_withdrawal,
+            process_withdrawal_intents,
         },
         kupo::get_utxo,
     },
@@ -190,13 +189,12 @@ pub async fn process_vault_withdrawal(
             ex_units: Budget { mem: 0, steps: 0 },
         })
         // app oracle ref input
-        // .read_only_tx_in_reference(
-        //     &app_oracle_utxo.input.tx_hash,
-        //     app_oracle_utxo.input.output_index,
-        //     None,
-        // )
-        // .tx_in_inline_datum_present()
-        // .input_for_evaluation(app_oracle_utxo)
+        .read_only_tx_in_reference(
+            &app_oracle_utxo.input.tx_hash,
+            app_oracle_utxo.input.output_index,
+            None,
+        )
+        .input_for_evaluation(app_oracle_utxo)
         // vault oracle input
         .spending_plutus_script_v3()
         .tx_in(
@@ -345,15 +343,19 @@ mod tests {
         let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
         let oracle_nft = var("ORACLE_NFT").unwrap();
 
-        let message = "d8799f1a0112a880a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f582073e77a471edd4e749c7b51e7ee4d330bae9442e12da1049fa6a5175fb832338900ffff";
-        let signatures = vec!["", "", "", ""];
-        // let app_oracle_utxo = &kupo_provider
-        //     .fetch_address_utxos(
-        //         "addr_test1wzxjrlgcp4cm7q95luqxq4ss4zjrr9n2usx9kyaafsn7laqjgxmuj",
-        //         Some(&app_oracle_nft),
-        //     )
-        //     .await
-        //     .unwrap()[0];
+        let message = "d8799f1a00895440a29f581cc69b981db7a65e339a6d783755f85a2e03afa1cece9714c55fe4c913445553444dff019f4040ff02d8799f58202bfe93d598f40ee5e0427fdde3b2d82add670d1f93d1fcd7e45f3313a44ffdaf01ffff"; // todo
+        let sig_1 = "8d9bebfefd5570d72274718bd54a516c12bec44346f77df24161ac271b089d8c9050db030a399d7f3d5cc82ce4dd4241fd81dd323e8e1cec9ee13b72ad83fb0e";
+        let sig_2 = "dc30aee3cc222817bb59ae80986bc635d9cdc4c28720a5baa62279f935ea09efcca2647c38ed892cc4b520a865aba0fd0cdd087b58ac399bab2e4a814e375302";
+        let sig_3 = "0b3b80807b8b6f9c4a4cf08622ed8b2fa12f0017ec8c5bbc860dd8be88e5f18d4da27379411c3db19f0aad9f2df915d24420031d3482e92a462edcecd150a400";
+        let sig_4 = "fb918d56d4b911733bd908ace268e46501fd9e965d7b91056a72dff41092206852d04b69dea113aefd45694602de6e234b95e15eeed1465d0212f10f9001cb07";
+        let signatures = vec![sig_1, sig_2, sig_3, sig_4];
+        let app_oracle_utxo = &kupo_provider
+            .fetch_address_utxos(
+                "addr_test1wr3u744257jgnn4n30ttdw7peal8szjnjaskq8xz33v500qwswtux", // todo
+                Some(&app_oracle_nft),
+            )
+            .await
+            .unwrap()[0];
 
         let withdrawal_intent_blueprint = withdrawal_intent_spend_blueprint(&oracle_nft).unwrap();
         let intent_utxos = kupo_provider
@@ -407,7 +409,7 @@ mod tests {
             message,
             signatures,
             0,
-            &intent_ref_utxo, // todo: app_oracle_utxo
+            &app_oracle_utxo,
             &intent_utxos,
             &operator_address,
             &utxos,

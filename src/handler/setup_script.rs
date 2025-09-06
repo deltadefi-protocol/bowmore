@@ -7,7 +7,7 @@ pub async fn setup_tx_script(
     inputs: &[UTxO],
     script_cbor: &str,
 ) -> Result<String, WError> {
-    let output_amount = vec![Asset::new_from_str("lovelace", "50000000")];
+    let output_amount = vec![Asset::new_from_str("lovelace", "60000000")];
     let mut tx_builder = TxBuilder::new_core();
     tx_builder
         .tx_out(tx_script::ADDRESS, &output_amount)

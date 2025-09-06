@@ -7,7 +7,7 @@ pub async fn send_lovelace(
 ) -> Result<String, WError> {
     let mut tx_builder = TxBuilder::new_core();
     tx_builder
-        .tx_out(address, &[Asset::new_from_str("lovelace", "3000000")])
+        .tx_out(address, &[Asset::new_from_str("lovelace", "10000000")])
         .change_address(my_address)
         .select_utxos_from(inputs, 5000000)
         .complete_sync(None)?;
@@ -42,7 +42,7 @@ mod tests {
         let utxos = app_owner_wallet.get_utxos(None, None).await.unwrap();
 
         let tx_hex = send_lovelace(
-            "addr_test1wppcvw3ss0a6xxtc9e4qdc6ajxc2fyuxqmfx8gyt68p0xjq36wehh",
+            "addr_test1wq35dgfjr7rhv0cnz56sepcgx9p5d96g5cv86mzykpdjt8ckthfvs",
             &address,
             &utxos,
         )

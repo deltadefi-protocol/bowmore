@@ -91,7 +91,7 @@ pub fn cal_operator_fee(
     hwm_lp_value: i128,
     operator_charge: i128,
 ) -> Result<i128, WError> {
-    if vault_balance < hwm_lp_value {
+    if vault_balance <= hwm_lp_value {
         Ok(0)
     } else {
         Ok((vault_balance - hwm_lp_value) * operator_charge / 100)
@@ -260,7 +260,7 @@ pub fn process_deposit_intents(
     let mut total_usd_value: i128 = 0;
     let mut total_lp_amount: i128 = 0;
     let mut indices = Vec::new();
-    let mut index: i128 = 1; // todo: change back to 2 when have app deposit request
+    let mut index: i128 = 2;
 
     for utxo in utxos {
         let (output, assets, usd_value, lp_amount) = process_deposit_intent(
@@ -517,22 +517,22 @@ pub async fn get_utxos_for_withdrawal(
     }
 
     // Calculate return value by subtracting withdrawal amounts from selected assets
-    let mut withdrawal_with_min_ada = withdrawal_amount.to_vec();
-    if let Some(lovelace) = withdrawal_amount.iter().find(|a| a.unit() == "lovelace") {
-        let min_ada_quantity = lovelace.quantity().parse::<i128>().unwrap() + 2_000_000;
-        withdrawal_with_min_ada = withdrawal_amount
-            .iter()
-            .map(|a| {
-                if a.unit() == "lovelace" {
-                    Asset::new_from_str("lovelace", &min_ada_quantity.to_string())
-                } else {
-                    a.clone()
-                }
-            })
-            .collect();
-    }
+    // let mut withdrawal_with_min_ada = withdrawal_amount.to_vec();
+    // if let Some(lovelace) = withdrawal_amount.iter().find(|a| a.unit() == "lovelace") {
+    //     let min_ada_quantity = lovelace.quantity().parse::<i128>().unwrap() + 2_000_000;
+    //     withdrawal_with_min_ada = withdrawal_amount
+    //         .iter()
+    //         .map(|a| {
+    //             if a.unit() == "lovelace" {
+    //                 Asset::new_from_str("lovelace", &min_ada_quantity.to_string())
+    //             } else {
+    //                 a.clone()
+    //             }
+    //         })
+    //         .collect();
+    // }
 
-    let return_value = subtract_assets(&selected_assets, &withdrawal_with_min_ada);
+    let return_value = subtract_assets(&selected_assets, &withdrawal_amount);
 
     Ok((selected_utxos, return_value))
 }
