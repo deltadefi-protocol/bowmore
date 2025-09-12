@@ -1,0 +1,111 @@
+use dotenv::dotenv;
+use std::env::var;
+use whisky::{
+    data::{byte_string, ByteString, Constr0, Credential, Value},
+    Asset, ConstrEnum,
+};
+
+use whisky::{
+    utils::blueprint::{MintingBlueprint, SpendingBlueprint},
+    BuilderDataType, LanguageVersion,
+};
+
+use crate::{config::AppConfig, scripts::plutus_loader::get_compiled_code_by_index};
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum UserAccount {
+    UserSpotAccount(Constr0<Box<(ByteString, Credential, Credential)>>),
+    UserFundingAccount(Constr0<Box<(ByteString, Credential, Credential)>>),
+    UserMobileAccount(Constr0<Box<(ByteString, Credential, Credential)>>),
+}
+
+#[derive(Debug, Clone, ConstrEnum)]
+pub enum AppDepositRequestDatum {
+    Datum(UserAccount, Value),
+}
+
+impl AppDepositRequestDatum {
+    pub fn new(
+        assets: &[Asset],
+        account_type: &str,
+        account_id: &str,
+        master_key: (&str, bool),
+        operation_key: (&str, bool),
+    ) -> Self {
+        let clean_account_id = account_id.replace("-", "");
+
+        let m_value = Value::from_asset_vec(assets);
+        let account = Constr0::new(Box::new((
+            ByteString::new(&clean_account_id),
+            Credential::new(master_key),
+            Credential::new(operation_key),
+        )));
+
+        let account_info = match account_type {
+            "spot_account" => UserAccount::UserSpotAccount(account),
+            "funding_account" => UserAccount::UserFundingAccount(account),
+            "mobile_account" => UserAccount::UserMobileAccount(account),
+            _ => panic!("Unknown account type"),
+        };
+
+        AppDepositRequestDatum::Datum(account_info, m_value)
+    }
+}
+
+pub fn app_deposit_request_mint_blueprint() -> Result<MintingBlueprint, whisky::WError> {
+    dotenv().ok();
+    let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
+    let mut blueprint = MintingBlueprint::new(LanguageVersion::V3);
+    let compiled_code = get_compiled_code_by_index(15)?; // Using index 15 for app deposit request mint
+    blueprint
+        .param_script(
+            &compiled_code,
+            &[&byte_string(&app_oracle_nft).to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
+    Ok(blueprint)
+}
+
+pub fn app_deposit_request_spend_blueprint() -> Result<SpendingBlueprint, whisky::WError> {
+    dotenv().ok();
+    let app_oracle_nft = var("APP_ORACLE_NFT").unwrap();
+    let AppConfig { network_id, .. } = AppConfig::new();
+
+    let mut blueprint =
+        SpendingBlueprint::new(LanguageVersion::V3, network_id.parse().unwrap(), None);
+    let compiled_code = get_compiled_code_by_index(16)?; // Using index 16 for app deposit request spend
+    blueprint
+        .param_script(
+            &compiled_code,
+            &[&byte_string(&app_oracle_nft).to_string()],
+            BuilderDataType::JSON,
+        )
+        .unwrap();
+    Ok(blueprint)
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use dotenv::dotenv;
+
+    #[test]
+    fn test_withdrawal_intent_mint_blueprint() {
+        dotenv().ok();
+
+        let blueprint = app_deposit_request_mint_blueprint().unwrap();
+        assert_eq!(blueprint.hash, "TODO");
+        assert_eq!(blueprint.cbor, "TODO");
+    }
+
+    #[test]
+    fn test_withdrawal_intent_spend_blueprint() {
+        dotenv().ok();
+
+        let blueprint = app_deposit_request_spend_blueprint().unwrap();
+        assert_eq!(blueprint.hash, "TODO");
+        assert_eq!(blueprint.cbor, "TODO");
+    }
+}
